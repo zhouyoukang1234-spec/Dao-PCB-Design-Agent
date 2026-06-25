@@ -1184,6 +1184,93 @@ def resolve_usb_c(dna: DNA) -> DNA:
     return dna
 
 
+def _conn_key(pin: str) -> str:
+    """连接器功能脚名归一 (极性感知: D+→DP, TX+→TXP, RX-→RXN; 电源/地同义)。"""
+    s = str(pin).strip().upper()
+    s = (s.replace("D+", "DP").replace("D-", "DM")
+         .replace("TX+", "TXP").replace("TX-", "TXN")
+         .replace("RX+", "RXP").replace("RX-", "RXN")
+         .replace("TD+", "TXP").replace("TD-", "TXN")
+         .replace("RD+", "RXP").replace("RD-", "RXN"))
+    s = re.sub(r"[^A-Z0-9]", "", s)
+    if s in ("VCC", "5V", "VBUS"):
+        return "VBUS"
+    if s in ("VSS", "GND"):
+        return "GND"
+    return s
+
+
+# 标准连接器规范映射: KiCad 无对应符号的常见连接器/晶振, 按各自电气规范/几何确定
+# 功能脚名→焊盘, 并把模板里写错/缺失的封装名归正为官方真实封装。全部依公开规范, 非臆造。
+_CONN_RULES = [
+    # SMA/射频同轴座: 中心导体=信号(1), 外壳=屏蔽地(2)
+    # (限定真正的同轴座, 排除 SMA/SMB 二极管封装 'D_SMA' 与 SMAJ TVS 'SMAJ28A')
+    {"match": lambda v, f: ("ANT" in v and "SMA" in v) or f.startswith("SMA") or "COAXIAL" in f,
+     "fp": ("Connector_Coaxial", "SMA_Amphenol_132134-10_Vertical"),
+     "spec": {"GND": "2", "SHIELD": "2", "ANT": "1", "RF": "1", "RFIN": "1",
+              "RFOUT": "1", "SIG": "1", "IN": "1", "OUT": "1", "1": "1", "2": "2"}},
+    # XT60 电源座 (2脚, 仅数字脚): 归正封装名即可 (按公/母选 M/F)
+    {"match": lambda v, f: "XT60" in v or "XT60" in f,
+     "fp_fn": lambda v, f: ("Connector_AMASS",
+                            "AMASS_XT60-%s_1x02_P7.20mm_Vertical"
+                            % ("M" if ("MALE" in v and "FEMALE" not in v) else "F")),
+     "spec": {}},
+    # USB Micro-B (USB2.0 spec): 1=VBUS 2=D- 3=D+ 4=ID 5=GND SH=屏蔽 (保留模板已有真实封装)
+    {"match": lambda v, f: "USB_MICRO" in f or "MICRO-B" in f or "MICRO_B" in f,
+     "spec": {"VBUS": "1", "DM": "2", "DP": "3", "ID": "4", "GND": "5", "SHIELD": "SH"}},
+    # RJ45 MagJack (10/100BASE-TX MDI): 1=TD+ 2=TD- 3=RD+ 6=RD-, 屏蔽=SH
+    {"match": lambda v, f: "RJ45" in v or "RJ45" in f or "MAGJACK" in v or "HANRUN" in f,
+     "fp": ("Connector_RJ", "RJ45_Hanrun_HR911105A_Horizontal"),
+     "spec": {"TXP": "1", "TXN": "2", "RXP": "3", "RXN": "6", "GND": "SH", "SHIELD": "SH"}},
+    # 4脚 SMD 晶振: 1/3=端子, 2/4=外壳接地; 功能脚 GND→2
+    {"match": lambda v, f: "CRYSTAL" in f and "4PIN" in f.replace("-", "").replace("_", ""),
+     "spec": {"GND": "2"}},
+]
+
+
+def resolve_connectors(dna: DNA) -> DNA:
+    """标准连接器/晶振 (KiCad 无对应符号者): 按电气规范把功能脚名解析到真实焊盘, 并归正
+    写错/缺失的封装名为官方真实封装。映射全部来自公开规范 (USB/MDI/同轴/晶振), 非臆造。"""
+    try:
+        from footprint_pads import real_pad_nums
+    except Exception:
+        return dna
+    targets: Dict[str, dict] = {}   # ref -> rule
+    for comp in dna.components:
+        fn = comp.fp_name if isinstance(comp.fp_name, str) else ""
+        val = comp.value if isinstance(comp.value, str) else ""
+        vu, fu = val.upper(), fn.upper()
+        for rule in _CONN_RULES:
+            if rule["match"](vu, fu):
+                targets[comp.ref] = rule
+                # 归正封装名 (当前封装无真实焊盘时)
+                cur = real_pad_nums(comp.fp_lib if isinstance(comp.fp_lib, str) else "",
+                                    comp.fp_name if isinstance(comp.fp_name, str) else "")
+                if not cur:
+                    fp = rule.get("fp") or (rule["fp_fn"](vu, fu) if "fp_fn" in rule else None)
+                    if fp and real_pad_nums(*fp):
+                        comp.fp_lib, comp.fp_name = fp
+                break
+    if not targets:
+        return dna
+    comp_by_ref = {c.ref: c for c in dna.components}
+    for net_name, conns in dna.nets.items():
+        new_conns = []
+        for ref, pin in conns:
+            rule = targets.get(ref)
+            if rule and not str(pin).isdigit():
+                comp = comp_by_ref.get(ref)
+                pads = real_pad_nums(comp.fp_lib if isinstance(comp.fp_lib, str) else "",
+                                     comp.fp_name if isinstance(comp.fp_name, str) else "") if comp else set()
+                cand = rule["spec"].get(_conn_key(pin))
+                if cand and cand in pads:
+                    new_conns.append((ref, cand))
+                    continue
+            new_conns.append((ref, pin))
+        dna.nets[net_name] = new_conns
+    return dna
+
+
 def repair_footprints(dna: DNA) -> DNA:
     """用器件符号自带的**权威封装**修正"封装缺失/脚数不足"的元件。
 
@@ -1231,6 +1318,7 @@ def auto_layout(dna: DNA) -> DNA:
     """
     recover_legacy_comps(dna)  # 修复旧式 4 参 Comp 写法 (D 类数据损坏)
     resolve_usb_c(dna)         # USB-C 受体: 规范功能脚名→真实焊盘标号 + 修正错误封装名
+    resolve_connectors(dna)    # 标准连接器/晶振 (SMA/XT60/RJ45/Micro-B/4脚晶振): 规范脚名→焊盘
     resolve_pin_names(dna)     # 借符号库把网表功能引脚名解析成物理焊盘号 (§4.5)
     repair_footprints(dna)     # 用符号自带权威封装修正错配/缺失的封装
 
