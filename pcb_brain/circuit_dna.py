@@ -1767,8 +1767,8 @@ _smartwatch_components = [
     Comp("U2",  "AP2112K-3.3",       "Package_TO_SOT_SMD",
          "SOT-23-5",                                  (6.0,  19.0), "power",
          "3.3V 600mA超低噪声LDO-射频专用(LCSC C51118)"),
-    Comp("U3",  "TP4056",            "Package_SOP",
-         "SOP-8_3.9x4.9mm_P1.27mm",                  (6.0,  32.0), "power",
+    Comp("U3",  "TP4056",            "Package_SO",
+         "SOIC-8_3.9x4.9mm_P1.27mm",                 (6.0,  32.0), "power",
          "500mA LiPo线性充电管理IC(LCSC C16581)"),
     Comp("U4",  "DW01A",             "Package_TO_SOT_SMD",
          "SOT-23-6",                                  (12.0, 38.0), "power",
@@ -1859,8 +1859,8 @@ _smartwatch_components = [
 ]
 _smartwatch_nets = {
     # ── 电源轨 ────────────────────────────────────────────────
-    "VBUS_5V":    [("J1","VBUS"),   ("U3","VIN"),   ("C3","1")],
-    "VBAT_RAW":   [("J3","1"),     ("U3","BAT"),   ("U4","VIN"),  ("C5","1")],
+    "VBUS_5V":    [("J1","VBUS"),   ("U3","VCC"),   ("C3","1")],
+    "VBAT_RAW":   [("J3","1"),     ("U3","BAT"),   ("U4","VCC"),  ("C5","1")],
     "VBAT_PROT":  [("Q1","S1"),    ("U2","5")],
     "VCC_3V3":    [("U2","2"),     ("C4","1"),    ("C1","1"),   ("C2","1"),
                    ("U1","VCC"),   ("U5","VDD"),  ("U6","VDDIO"),("U7","8"),
