@@ -90,10 +90,13 @@ def _canon(raw: str) -> str:
     if md:
         s = "IO" + md.group(1)
     s = re.sub(r"[^A-Z0-9]", "", s)
+    # 片选 CS↔SS (Chip Select = Slave Select, SPI 通用同义; QSPI_CS↔~{QSPI_SS})
+    s = re.sub(r"CS$", "SS", s)
     # 通用电源/地等价 (3V3 即 3.3V 供电脚; 稳压器输入/输出 VIN↔VI / VOUT↔VO);
-    # 复位脚核 RST↔RESET (二者同义, 无器件同时具备相异的 RST 与 RESET 脚)
+    # 复位脚核 RST↔RESET; 晶振端 XTAL1/XI↔XIN, XTAL2/XO↔XOUT (晶振输入/输出通用记法)
     s = {"VCC": "VDD", "3V3": "VDD", "V3V3": "VDD", "VDD3V3": "VDD",
-         "VSS": "GND", "VIN": "VI", "VOUT": "VO", "RST": "RESET"}.get(s, s)
+         "VSS": "GND", "VIN": "VI", "VOUT": "VO", "RST": "RESET",
+         "XTAL1": "XIN", "XI": "XIN", "XTAL2": "XOUT", "XO": "XOUT"}.get(s, s)
     return f"{s}#{pol}" if pol else s
 
 
