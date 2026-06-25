@@ -75,8 +75,15 @@ def _canon(raw: str) -> str:
         pol = "I"
     elif re.match(r"^[A-Z]{2,}[PN]$", s):   # 大写差分 TXP / RXN
         pol, s = s[-1], s[:-1]
+    # 端口脚带外设功能后缀: PA13_SWDIO / PA2_USART2TX → 取端口脚 PA13/PA2 (同一焊盘)
+    mp = re.match(r"^(P[A-Z]\d{1,2})[_/]", s)
+    if mp:
+        s = mp.group(1)
+    s = re.sub(r"^GPIO(?=\d)", "IO", s)          # ESP32: GPIOn ↔ IOn
     s = re.sub(r"[^A-Z0-9]", "", s)
-    s = {"VCC": "VDD", "VSS": "GND"}.get(s, s)   # 通用电源/地等价
+    # 通用电源/地等价 (3V3 即 3.3V 供电脚)
+    s = {"VCC": "VDD", "3V3": "VDD", "V3V3": "VDD", "VDD3V3": "VDD",
+         "VSS": "GND"}.get(s, s)
     return f"{s}#{pol}" if pol else s
 
 
