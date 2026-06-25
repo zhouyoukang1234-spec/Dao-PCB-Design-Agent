@@ -129,6 +129,8 @@ _PIN_ALIAS: Dict[str, Dict[str, str]] = {
         "GPIO19": "USB_D-", "GPIO19_DM": "USB_D-",
         "GPIO20": "USB_D+", "GPIO20_DP": "USB_D+",
     },
+    # STM32G031: 复位脚为 PF2-NRST (引脚5, 复位与 PF2 复用同焊盘; ST 数据手册)
+    "stm32g031g8ux": {"NRST": "PF2", "RESET": "PF2"},
 }
 
 
