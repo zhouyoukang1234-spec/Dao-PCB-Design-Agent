@@ -57,10 +57,14 @@ def _canon(raw: str) -> str:
     if not s0:
         return ""
     inv = "~" in s0
-    # 数据手册式有源低: 全大写词 + 末尾小写 'n' (RSTn / SCSn / INTn)
-    if re.match(r"^[A-Z0-9_]+n$", s0):
-        inv = True
-        s0 = s0[:-1]
+    # 有源低记法 (本库差分一律用 +/-, 故下列均判为有源低, 无歧义):
+    #   末尾 '#'  ·  分隔式 '_N'/'_n'  ·  数据手册式"全大写词+小写 n" (RSTn/SCSn/INTn)
+    if s0.endswith("#"):
+        inv, s0 = True, s0[:-1]
+    elif re.search(r"_[nN]$", s0):
+        inv, s0 = True, s0[:-2]
+    elif re.match(r"^[A-Z0-9_]+n$", s0):
+        inv, s0 = True, s0[:-1]
     s = re.sub(r"[~{}]", "", s0.upper())
     pol = ""
     if s.endswith("+"):
