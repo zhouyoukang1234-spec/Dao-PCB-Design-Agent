@@ -34,9 +34,8 @@
   all_names = CircuitDNA.list_all()  # 返回全部21个模板名
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional
-import math
 
 
 @dataclass
@@ -956,7 +955,6 @@ def auto_layout(dna: DNA) -> DNA:
     自动布局算法 v2 — 功能分区 + 最小间距保证 + 去耦电容靠近MCU
     布局分区: 电源(左15%) | 晶振(左30%) | MCU(中心) | 去耦(MCU周围) | 无源(右40%) | 接口(右边)
     """
-    import copy
     w, h = dna.board_size
     margin = max(4.0, min(8.0, w * 0.08))  # 边距
     usable_w = w - 2 * margin
@@ -1115,7 +1113,6 @@ def estimate_bom_cost(dna: DNA) -> Dict[str, float]:
         "TB6612FNG":      3.5,
         "CH224K":         1.5,
         "E73-2G4M08S1C": 25.0,
-        "AP2112K-3.3":    0.5,
         "SMA_Conn":       2.0,
         "USB_C_Conn":     1.8,
     }
