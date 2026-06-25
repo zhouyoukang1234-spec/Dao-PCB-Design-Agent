@@ -113,6 +113,11 @@ _VALUE_ALIAS: Dict[str, str] = {
     "tja1050": "tja1051",
     "tja1050t": "tja1051",
     "tja1050t3": "tja1051",
+    # GigaDevice GD32F103 系列为 ST STM32F103 的引脚/外设兼容国产替代 (官方明示 pin-to-pin
+    # 兼容, LQFP-48 物理脚序一致)。借 KiCad MCU_ST_STM32F1:STM32F103C8Tx 符号取真实脚序。
+    "gd32f103c8t6": "stm32f103c8tx",
+    "gd32f103c8": "stm32f103c8tx",
+    "gd32f103cbt6": "stm32f103c8tx",
 }
 
 
