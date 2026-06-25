@@ -173,15 +173,24 @@ def observe_pcb(pcb_path: Path) -> Dict[str, int]:
     if text.strip().startswith("# PCB placeholder"):
         return {"footprints": 0, "pads": 0, "pads_netted": 0,
                 "segments": 0, "nets_declared": 0, "file_ok": 0}
-    # 网络声明在文件头 (首个 footprint 之前); 焊盘上的 (net ..) 引用在 footprint 体内
+    # 网络声明在文件头 (首个 footprint 之前)
     fp_start = text.find("(footprint ")
     header = text if fp_start < 0 else text[:fp_start]
-    body = "" if fp_start < 0 else text[fp_start:]
+    # 精确统计"接入网络的焊盘": 仅数 (pad ..) 块内含 (net ..) 的焊盘,
+    # 不把走线/过孔自带的 (net ..) 计进来 (否则与 pad_endpoints 预测错配)。
+    pads_netted = 0
+    for chunk in text.split("(pad ")[1:]:
+        cut = len(chunk)
+        for marker in ("(footprint ", "(segment", "(via", "(zone", "(gr_"):
+            idx = chunk.find(marker)
+            if idx != -1:
+                cut = min(cut, idx)
+        if "(net " in chunk[:cut]:
+            pads_netted += 1
     return {
         "footprints": _count(r"\(footprint ", text),
         "pads": _count(r"\(pad ", text),
-        # 板体内的 (net N ..) 引用 = 真正接入网络的焊盘/走线端点数
-        "pads_netted": _count(r"\(net \d+ ", body),
+        "pads_netted": pads_netted,
         "segments": _count(r"\(segment ", text) + _count(r"\(via ", text),
         "nets_declared": _count(r"\(net \d+ ", header),  # 含 net 0
         "file_ok": 1,

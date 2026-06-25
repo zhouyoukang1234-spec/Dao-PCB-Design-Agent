@@ -75,13 +75,76 @@ def _pinheader_pads(cols: int, rows: int, pitch: float) -> List[Dict]:
     return pads
 
 
+def _dual_row_pads(n: int, pitch: float, body_w: float) -> List[Dict]:
+    """双列封装 (SOIC/SSOP/SO/MSOP): 引脚 1 左上, 沿左列向下, 再右列由下向上。"""
+    per = n // 2
+    span = body_w + 1.4            # 左右两列焊盘中心距 ≈ 本体宽 + 引脚伸出
+    pad_w, pad_h = 1.5, round(pitch * 0.6, 3)
+    y0 = -(per - 1) * pitch / 2.0
+    pads: List[Dict] = []
+    for i in range(per):           # 左列: 1..per, 自上而下
+        pads.append({"num": str(i + 1), "type": "smd", "shape": "roundrect",
+                     "at": (-span / 2.0, round(y0 + i * pitch, 3)),
+                     "size": (pad_w, pad_h), "layers": list(_SMD_LAYERS), "rratio": 0.25})
+    for i in range(per):           # 右列: per+1..n, 自下而上
+        pads.append({"num": str(per + 1 + i), "type": "smd", "shape": "roundrect",
+                     "at": (span / 2.0, round(-y0 - i * pitch, 3)),
+                     "size": (pad_w, pad_h), "layers": list(_SMD_LAYERS), "rratio": 0.25})
+    return pads
+
+
+def _quad_pads(n: int, pitch: float, body_w: float, body_h: float,
+               ep: Optional[tuple]) -> List[Dict]:
+    """四边封装 (QFP/LQFP/QFN/DFN/UFQFPN): 逆时针 左→下→右→上; 可选中心散热焊盘。"""
+    per = n // 4
+    pad_long, pad_short = 1.2, round(pitch * 0.6, 3)
+    span_x = body_w + 1.0
+    span_y = body_h + 1.0
+    pads: List[Dict] = []
+
+    # 左边 (垂直边, 焊盘水平), 引脚 1..per 自上而下
+    yk = [(-(per - 1) * pitch / 2.0 + k * pitch) for k in range(per)]
+    for k in range(per):
+        pads.append({"num": str(1 + k), "type": "smd", "shape": "roundrect",
+                     "at": (-span_x / 2.0, round(yk[k], 3)),
+                     "size": (pad_long, pad_short), "layers": list(_SMD_LAYERS), "rratio": 0.25})
+    # 下边 (水平边, 焊盘垂直), per+1..2per 自左向右
+    xk = [(-(per - 1) * pitch / 2.0 + k * pitch) for k in range(per)]
+    for k in range(per):
+        pads.append({"num": str(per + 1 + k), "type": "smd", "shape": "roundrect",
+                     "at": (round(xk[k], 3), span_y / 2.0),
+                     "size": (pad_short, pad_long), "layers": list(_SMD_LAYERS), "rratio": 0.25})
+    # 右边 (垂直边), 2per+1..3per 自下而上
+    for k in range(per):
+        pads.append({"num": str(2 * per + 1 + k), "type": "smd", "shape": "roundrect",
+                     "at": (span_x / 2.0, round(yk[per - 1 - k], 3)),
+                     "size": (pad_long, pad_short), "layers": list(_SMD_LAYERS), "rratio": 0.25})
+    # 上边 (水平边), 3per+1..4per 自右向左
+    for k in range(per):
+        pads.append({"num": str(3 * per + 1 + k), "type": "smd", "shape": "roundrect",
+                     "at": (round(xk[per - 1 - k], 3), -span_y / 2.0),
+                     "size": (pad_short, pad_long), "layers": list(_SMD_LAYERS), "rratio": 0.25})
+    if ep:
+        pads.append({"num": str(n + 1), "type": "smd", "shape": "roundrect",
+                     "at": (0.0, 0.0), "size": (ep[0], ep[1]),
+                     "layers": list(_SMD_LAYERS), "rratio": 0.1})
+    return pads
+
+
 _RE_CHIP = re.compile(r"^(?:R|C|L|LED|F|FB)_(\d{4})_\d+Metric", re.IGNORECASE)
 _RE_HEADER = re.compile(r"PinHeader_(\d+)x(\d+)_P([\d.]+)mm", re.IGNORECASE)
+_RE_DUAL = re.compile(r"^(?:SOIC|SO|SOP|SSOP|TSSOP|MSOP|VSSOP|HTSSOP)-(\d+)", re.IGNORECASE)
+_RE_QUAD = re.compile(r"^(?:LQFP|TQFP|QFP|QFN|DFN|UFQFPN|VQFN|WQFN)-(\d+)", re.IGNORECASE)
+_RE_PITCH = re.compile(r"P([\d.]+)mm", re.IGNORECASE)
+_RE_BODY = re.compile(r"(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)mm")
+_RE_EP = re.compile(r"EP(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)mm", re.IGNORECASE)
 
 
 def builtin_fp_pads(fp_lib: str, fp_name: str,
                     required_pins: Optional[Set[str]] = None) -> List[Dict]:
     """对几何确定的标准封装生成正确焊盘; 复杂封装返回空 (诚实留白)。"""
+    if not isinstance(fp_name, str):  # 损坏的 Comp (fp_name 为坐标元组等) → 不生成
+        return []
     name = fp_name or ""
 
     m = _RE_CHIP.match(name)
@@ -96,11 +159,34 @@ def builtin_fp_pads(fp_lib: str, fp_name: str,
         cols, rows, pitch = int(m.group(1)), int(m.group(2)), float(m.group(3))
         return _pinheader_pads(cols, rows, pitch)
 
+    # 双列 / 四边规则封装: land pattern 由 引脚数 + 间距 + 本体尺寸 完全确定 (均编码在名字里)
+    mp = _RE_PITCH.search(name)
+    mb = _RE_BODY.search(name)
+    md = _RE_DUAL.match(name)
+    if md and mp and mb:
+        n = int(md.group(1))
+        pitch = float(mp.group(1))
+        body_w = float(mb.group(1))
+        if n >= 2 and n % 2 == 0:
+            return _dual_row_pads(n, pitch, body_w)
+    mq = _RE_QUAD.match(name)
+    if mq and mp and mb:
+        n = int(mq.group(1))
+        pitch = float(mp.group(1))
+        body_w, body_h = float(mb.group(1)), float(mb.group(2))
+        if n >= 4 and n % 4 == 0:
+            me = _RE_EP.search(name)
+            ep = (float(me.group(1)), float(me.group(2))) if me else None
+            return _quad_pads(n, pitch, body_w, body_h, ep)
+
     # 复杂 IC / 模组 / 未知封装: 不伪造几何, 交回给 pcb_predict 作认知误差继续追踪
     return []
 
 
 def supported(fp_name: str) -> bool:
     name = fp_name or ""
+    has_geom = bool(_RE_PITCH.search(name) and _RE_BODY.search(name))
     return bool(_RE_CHIP.match(name) or name.startswith("SOT-223")
-                or _RE_HEADER.search(name))
+                or _RE_HEADER.search(name)
+                or (_RE_DUAL.match(name) and has_geom)
+                or (_RE_QUAD.match(name) and has_geom))
