@@ -1099,6 +1099,90 @@ def resolve_pin_names(dna: DNA) -> DNA:
 # 二极管/TVS 极性脚 → 焊盘号 (KiCad Diode_* 封装约定: 阴极 K=1, 阳极 A=2)
 _DIODE_PIN = {"k": "1", "c": "1", "cathode": "1", "a": "2", "anode": "2"}
 
+# USB Type-C 规范引脚 → 候选焊盘标号 (USB-C 受体 A/B 双排; 按规范取封装实际存在的首个)
+_USBC_PADS = {
+    "VBUS": ["A4", "B4", "A9", "B9"],
+    "GND":  ["A1", "B1", "A12", "B12"],
+    "DP":   ["A6", "B6"],
+    "DM":   ["A7", "B7"],
+    "CC1":  ["A5"],
+    "CC2":  ["B5"],
+    "SBU1": ["A8"],
+    "SBU2": ["B8"],
+    "SHIELD": ["SH"],
+}
+# USB-C 受体真实封装 (官方库精确名): 全功能 16P (含数据脚) / 仅供电 6P
+_USBC_FP_FULL = ("Connector_USB", "USB_C_Receptacle_Palconn_UTC16-G")
+_USBC_FP_PWR = ("Connector_USB", "USB_C_Receptacle_GCT_USB4135-GF-A_6P_TopMnt_Horizontal")
+
+
+def _usbc_key(pin: str) -> str:
+    """USB-C 功能脚名归一 (极性感知: D+→DP, D-→DM; 去 USB 前缀/装饰)。"""
+    s = str(pin).strip().upper()
+    s = s.replace("USB_", "").replace("USB", "")
+    s = s.replace("D+", "DP").replace("D-", "DM")
+    s = re.sub(r"[^A-Z0-9]", "", s)
+    if s in ("VCC", "5V", "VBUS"):
+        return "VBUS"
+    if s in ("VSS", "GND"):
+        return "GND"
+    if s == "CC":
+        return "CC1"
+    return s
+
+
+def resolve_usb_c(dna: DNA) -> DNA:
+    """USB Type-C 受体: 按 USB-C 规范把功能脚名 (VBUS/GND/D+/D-/CC1/CC2) 解析到真实
+    焊盘标号 (A4/A1/A6/A7/A5/B5...)。封装名缺失/错误 (如 '..._Vertical' 在官方库不存在)
+    时, 据是否需数据脚 (D+/D-) 选官方真实 16P/6P USB-C 受体封装。映射全部来自 USB-C
+    规范 (权威可核验), 非臆造。"""
+    try:
+        from footprint_pads import real_pad_nums
+    except Exception:
+        return dna
+    usb_refs = {}
+    for comp in dna.components:
+        fn = comp.fp_name if isinstance(comp.fp_name, str) else ""
+        val = comp.value if isinstance(comp.value, str) else ""
+        if "USB_C_Receptacle" in fn or ("USB_C" in fn) or (val.upper() == "USB_C"):
+            usb_refs[comp.ref] = comp
+    if not usb_refs:
+        return dna
+    # 各 USB-C 件需要哪些功能脚 (决定选 16P 还是 6P)
+    need_keys: Dict[str, set] = {}
+    for conns in dna.nets.values():
+        for ref, pin in conns:
+            if ref in usb_refs and not str(pin).isdigit():
+                need_keys.setdefault(ref, set()).add(_usbc_key(pin))
+    for ref, comp in usb_refs.items():
+        keys = need_keys.get(ref, set())
+        cur = real_pad_nums(comp.fp_lib if isinstance(comp.fp_lib, str) else "",
+                            comp.fp_name if isinstance(comp.fp_name, str) else "")
+        want_pads = {pad for k in keys for pad in _USBC_PADS.get(k, [])}
+        # 当前封装无法覆盖所需规范焊盘 → 换官方真实封装 (需数据脚则 16P, 否则 6P)
+        # (want_pads 为空 = 引脚已是焊盘标号/无规范脚, 不动封装)
+        if want_pads and not want_pads.intersection(cur):
+            need_data = bool(keys & {"DP", "DM"})
+            comp.fp_lib, comp.fp_name = _USBC_FP_FULL if need_data else _USBC_FP_PWR
+            cur = real_pad_nums(comp.fp_lib, comp.fp_name)
+    # 重写网表里 USB-C 功能脚名 → 该封装实际存在的规范焊盘
+    for net_name, conns in dna.nets.items():
+        new_conns = []
+        for ref, pin in conns:
+            if ref in usb_refs and not str(pin).isdigit():
+                comp = usb_refs[ref]
+                pads = real_pad_nums(comp.fp_lib, comp.fp_name)
+                for cand in _USBC_PADS.get(_usbc_key(pin), []):
+                    if cand in pads:
+                        new_conns.append((ref, cand))
+                        break
+                else:
+                    new_conns.append((ref, pin))
+            else:
+                new_conns.append((ref, pin))
+        dna.nets[net_name] = new_conns
+    return dna
+
 
 def repair_footprints(dna: DNA) -> DNA:
     """用器件符号自带的**权威封装**修正"封装缺失/脚数不足"的元件。
@@ -1146,6 +1230,7 @@ def auto_layout(dna: DNA) -> DNA:
     布局分区: 电源(左15%) | 晶振(左30%) | MCU(中心) | 去耦(MCU周围) | 无源(右40%) | 接口(右边)
     """
     recover_legacy_comps(dna)  # 修复旧式 4 参 Comp 写法 (D 类数据损坏)
+    resolve_usb_c(dna)         # USB-C 受体: 规范功能脚名→真实焊盘标号 + 修正错误封装名
     resolve_pin_names(dna)     # 借符号库把网表功能引脚名解析成物理焊盘号 (§4.5)
     repair_footprints(dna)     # 用符号自带权威封装修正错配/缺失的封装
 
