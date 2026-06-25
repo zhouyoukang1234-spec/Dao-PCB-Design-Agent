@@ -1103,10 +1103,10 @@ def auto_layout(dna: DNA) -> DNA:
     try:
         from footprint_pads import footprint_extent
     except Exception:
-        def footprint_extent(_name):  # 退化: 缺省外形
+        def footprint_extent(_name, _lib=""):  # 退化: 缺省外形
             return (3.0, 3.0)
 
-    exts = {comp.ref: footprint_extent(comp.fp_name) for comp in dna.components}
+    exts = {comp.ref: footprint_extent(comp.fp_name, comp.fp_lib) for comp in dna.components}
     CLEAR = 0.6  # 元件间最小留白 (courtyard) mm
     order = ["mcu", "crystal", "power", "passive", "interface", "misc"]
 

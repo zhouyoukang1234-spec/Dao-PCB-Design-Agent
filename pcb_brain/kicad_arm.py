@@ -100,10 +100,20 @@ class KiCadArm:
         return cli_sys
 
     def _find_footprints(self) -> Optional[Path]:
+        # 1) 显式环境变量优先
+        env = os.environ.get("KICAD_FOOTPRINT_DIR")
+        if env and Path(env).is_dir():
+            return Path(env)
+        # 2) KiCad 安装内置封装库
         if self.kicad_dir:
             fp = self.kicad_dir / "share" / "kicad" / "footprints"
             if fp.exists():
                 return fp
+        # 3) 官方封装库克隆 (gitlab.com/kicad/libraries/kicad-footprints)
+        for cand in (Path.home() / "kicad-footprints",
+                     Path("C:/Users/Administrator/kicad-footprints")):
+            if cand.is_dir() and any(cand.glob("*.pretty")):
+                return cand
         return None
 
     def _load_pcbnew(self):
@@ -225,9 +235,15 @@ class KiCadArm:
         """解析.kicad_mod封装文件，提取焊盘数据（无需pcbnew）"""
         if not self.fp_dir:
             return []
+        # 空/非法的 fp_lib·fp_name (D 类诚实留白件) → 直接交回内置/留白, 勿让 glob 崩
+        if not isinstance(fp_lib, str) or not fp_lib.strip():
+            return []
+        if not isinstance(fp_name, str) or not fp_name.strip():
+            return []
         fp_path = self.fp_dir / f"{fp_lib}.pretty" / f"{fp_name}.kicad_mod"
         if not fp_path.exists():
-            libs = list(self.fp_dir.glob(f"*{fp_lib}*.pretty"))
+            safe = re.sub(r"[\[\]*?]", "", fp_lib)  # 去掉会破坏 glob 的元字符
+            libs = list(self.fp_dir.glob(f"*{safe}*.pretty")) if safe else []
             if libs:
                 fp_path = libs[0] / f"{fp_name}.kicad_mod"
         if not fp_path.exists():
@@ -349,7 +365,11 @@ class KiCadArm:
         builtin_used = 0
         for comp in dna.components:
             x, y = comp.pos
-            fp_pads = self._parse_fp_pads(comp.fp_lib, comp.fp_name)
+            try:
+                fp_pads = self._parse_fp_pads(comp.fp_lib, comp.fp_name)
+            except Exception as e:
+                log.debug(f"真实封装解析跳过 {comp.ref}: {e}")
+                fp_pads = []
             if not fp_pads:
                 # KiCad 封装库不在场时, 对几何确定的标准封装由第一性原理生成焊盘
                 try:
@@ -361,6 +381,18 @@ class KiCadArm:
                 except Exception as e:
                     log.debug(f"内置焊盘生成跳过 {comp.ref}: {e}")
             fp_pad_counts[comp.ref] = len(fp_pads)
+
+            # 焊盘重心对齐到布局中心: KiCad 封装原点常落在 pin1 (如排针) 而非几何中心,
+            # 直接按原点摆放会让焊盘整体偏向一侧, 与布局的"中心±半外形"模型不符 → 邻件焊盘重叠(R001)。
+            # 减去焊盘外接框中心, 使元件真正以 comp.pos 为中心摆放 (内置焊盘本已居中, 偏移≈0 无副作用)。
+            cx0 = cy0 = 0.0
+            if fp_pads:
+                xe = [pp["at"][0] + s * pp["size"][0] / 2.0
+                      for pp in fp_pads for s in (-1.0, 1.0)]
+                ye = [pp["at"][1] + s * pp["size"][1] / 2.0
+                      for pp in fp_pads for s in (-1.0, 1.0)]
+                cx0 = (min(xe) + max(xe)) / 2.0
+                cy0 = (min(ye) + max(ye)) / 2.0
 
             lines.append(f'  (footprint "{comp.fp_lib}:{comp.fp_name}"')
             lines.append(f'    (layer "F.Cu")')
@@ -377,6 +409,7 @@ class KiCadArm:
 
             for pad in fp_pads:
                 ax, ay = pad["at"]
+                ax, ay = round(ax - cx0, 4), round(ay - cy0, 4)  # 重心居中
                 sw, sh = pad["size"]
                 layers_str = " ".join(f'"{l}"' for l in pad["layers"])
                 net_info = pad_net.get((comp.ref, str(pad["num"])))

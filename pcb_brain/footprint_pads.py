@@ -18,8 +18,10 @@ footprint_pads.py — 内置封装焊盘生成器 (first-principles land pattern
 """
 from __future__ import annotations
 
+import os
 import re
-from typing import Dict, List, Optional, Set
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
 
 _SMD_LAYERS = ["F.Cu", "F.Paste", "F.Mask"]
 _THT_LAYERS = ["*.Cu", "*.Mask"]
@@ -34,6 +36,9 @@ _CHIP: Dict[str, tuple] = {
     "1206": (1.50,  1.25, 1.75),
     "1210": (1.50,  1.25, 2.65),
     "1812": (2.40,  1.50, 3.40),
+    "2010": (2.55,  1.45, 2.80),
+    "2512": (3.05,  1.50, 3.40),
+    "2920": (3.60,  1.60, 5.40),
 }
 
 
@@ -305,11 +310,69 @@ def builtin_fp_pads(fp_lib: str, fp_name: str,
     return []
 
 
-def footprint_extent(fp_name: str) -> tuple:
+def _find_fp_lib_root() -> Optional[Path]:
+    env = os.environ.get("KICAD_FOOTPRINT_DIR")
+    if env and Path(env).is_dir():
+        return Path(env)
+    for cand in (Path.home() / "kicad-footprints",
+                 Path("C:/Users/Administrator/kicad-footprints")):
+        if cand.is_dir() and any(cand.glob("*.pretty")):
+            return cand
+    return None
+
+
+_FP_LIB_ROOT = _find_fp_lib_root()
+_RE_PAD_AT = re.compile(r"\(at\s+(-?[\d.]+)\s+(-?[\d.]+)")
+_RE_PAD_SZ = re.compile(r"\(size\s+(-?[\d.]+)\s+(-?[\d.]+)")
+
+
+def _real_extent(fp_lib: str, fp_name: str) -> Optional[Tuple[float, float]]:
+    """从官方封装库 .kicad_mod 的焊盘外接框算半宽/半高 (供布局间隔), 找不到返回 None。"""
+    if not _FP_LIB_ROOT or not isinstance(fp_lib, str) or not fp_lib.strip():
+        return None
+    if not isinstance(fp_name, str) or not fp_name.strip():
+        return None
+    path = _FP_LIB_ROOT / f"{fp_lib}.pretty" / f"{fp_name}.kicad_mod"
+    if not path.exists():
+        safe = re.sub(r"[\[\]*?]", "", fp_lib)
+        libs = list(_FP_LIB_ROOT.glob(f"*{safe}*.pretty")) if safe else []
+        if libs:
+            path = libs[0] / f"{fp_name}.kicad_mod"
+    if not path.exists():
+        return None
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+    xs: List[float] = []
+    ys: List[float] = []
+    i = 0
+    while True:
+        idx = text.find("(pad ", i)
+        if idx == -1:
+            break
+        block = text[idx:idx + 300]
+        at = _RE_PAD_AT.search(block)
+        sz = _RE_PAD_SZ.search(block)
+        if at and sz:
+            ax, ay = float(at.group(1)), float(at.group(2))
+            w, h = float(sz.group(1)), float(sz.group(2))
+            xs += [ax - w / 2.0, ax + w / 2.0]
+            ys += [ay - h / 2.0, ay + h / 2.0]
+        i = idx + 5
+    if not xs:
+        return None
+    return (round((max(xs) - min(xs)) / 2.0, 3), round((max(ys) - min(ys)) / 2.0, 3))
+
+
+def footprint_extent(fp_name: str, fp_lib: str = "") -> tuple:
     """返回封装的半宽/半高 (mm), 供布局按真实外形间隔避免重叠。
 
-    已知封装由生成的焊盘外接框推出; 未知/损坏封装给保守缺省值。
+    优先用官方封装库真实焊盘外接框 (与生成时一致); 否则用内置生成焊盘; 都没有给保守缺省值。
     """
+    real = _real_extent(fp_lib, fp_name)
+    if real:
+        return real
     pads = builtin_fp_pads("", fp_name) if isinstance(fp_name, str) else []
     if not pads:
         return (3.0, 3.0)  # 未知封装保守估计 (含异形件/IC)
