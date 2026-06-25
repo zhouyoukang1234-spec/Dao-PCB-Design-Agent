@@ -49,6 +49,33 @@ def _find_lib_root() -> Optional[Path]:
     return None
 
 
+def _canon(raw: str) -> str:
+    """把功能引脚名归一到"核心+极性"规范键, 让等价记法collapse到一起 (双侧同函数,
+    故同名必同键; 只在记法不同(RSTn↔~{RST}, TX+↔TXP, VCC↔VDD)时起桥接作用)。
+    极性 (有源低/差分+−) 被保留, 避免 TX+/TX− 误并。"""
+    s0 = (raw or "").strip()
+    if not s0:
+        return ""
+    inv = "~" in s0
+    # 数据手册式有源低: 全大写词 + 末尾小写 'n' (RSTn / SCSn / INTn)
+    if re.match(r"^[A-Z0-9_]+n$", s0):
+        inv = True
+        s0 = s0[:-1]
+    s = re.sub(r"[~{}]", "", s0.upper())
+    pol = ""
+    if s.endswith("+"):
+        pol, s = "P", s[:-1]
+    elif s.endswith("-"):
+        pol, s = "N", s[:-1]
+    elif inv:
+        pol = "I"
+    elif re.match(r"^[A-Z]{2,}[PN]$", s):   # 大写差分 TXP / RXN
+        pol, s = s[-1], s[:-1]
+    s = re.sub(r"[^A-Z0-9]", "", s)
+    s = {"VCC": "VDD", "VSS": "GND"}.get(s, s)   # 通用电源/地等价
+    return f"{s}#{pol}" if pol else s
+
+
 def _parse_pins(text: str) -> Tuple[List[Tuple[str, str]], Optional[str]]:
     """从单个符号文件文本中提取 (pin_name, pin_number) 列表 + 可选 extends 父名。
 
@@ -79,6 +106,8 @@ class SymbolResolver:
         self._index: Dict[str, Path] = {}
         # 解析缓存: symbol_name(lower) -> {pin_name: number}
         self._cache: Dict[str, Dict[str, str]] = {}
+        # 规范键缓存: symbol_name(lower) -> {canon_key: number} (歧义键已剔除)
+        self._canon_cache: Dict[str, Dict[str, str]] = {}
         if self.root:
             self._build_index()
 
@@ -165,6 +194,41 @@ class SymbolResolver:
         if not sym:
             return {}
         return dict(self._pins_of(sym))
+
+    def _canon_map(self, sym_lower: str) -> Dict[str, str]:
+        """该符号的 规范键→焊盘号 索引。斜杠复合名(如 'SCK/CLK')按 / 拆分各自登记;
+        多个不同焊盘撞同一规范键 → 该键有歧义, 剔除 (宁可留白也不臆造)。"""
+        if sym_lower in self._canon_cache:
+            return self._canon_cache[sym_lower]
+        cidx: Dict[str, str] = {}
+        ambiguous: set = set()
+        for name, num in self._pins_of(sym_lower).items():
+            for part in (name.split("/") if "/" in name else [name]):
+                key = _canon(part)
+                if not key or key in ambiguous:
+                    continue
+                if key in cidx and cidx[key] != num:
+                    ambiguous.add(key)
+                    cidx.pop(key, None)
+                else:
+                    cidx[key] = num
+        self._canon_cache[sym_lower] = cidx
+        return cidx
+
+    def resolve(self, value: str, pin: str) -> Optional[str]:
+        """把 (value, 功能引脚名) 解析成物理焊盘号; 已是数字或解析不到 → None。"""
+        if not self.available:
+            return None
+        p = str(pin)
+        if p.isdigit():
+            return None
+        sym = self._match_symbol(value)
+        if not sym:
+            return None
+        pm = self._pins_of(sym)
+        if p in pm:                       # 名字精确命中
+            return pm[p]
+        return self._canon_map(sym).get(_canon(p))   # 记法等价桥接
 
 
 _DEFAULT: Optional[SymbolResolver] = None

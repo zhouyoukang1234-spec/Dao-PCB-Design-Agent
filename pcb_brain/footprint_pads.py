@@ -324,21 +324,36 @@ def _find_fp_lib_root() -> Optional[Path]:
 _FP_LIB_ROOT = _find_fp_lib_root()
 _RE_PAD_AT = re.compile(r"\(at\s+(-?[\d.]+)\s+(-?[\d.]+)")
 _RE_PAD_SZ = re.compile(r"\(size\s+(-?[\d.]+)\s+(-?[\d.]+)")
+_FP_INDEX: Optional[Dict[str, Path]] = None
+
+
+def _fp_index() -> Dict[str, Path]:
+    """全库 fp_name(stem) → .kicad_mod 路径 的惰性索引 (只认精确同名 = 精确同一封装)。"""
+    global _FP_INDEX
+    if _FP_INDEX is None:
+        idx: Dict[str, Path] = {}
+        if _FP_LIB_ROOT:
+            for p in _FP_LIB_ROOT.glob("*.pretty/*.kicad_mod"):
+                idx.setdefault(p.stem, p)
+        _FP_INDEX = idx
+    return _FP_INDEX
+
+
+def fp_mod_path(fp_lib: str, fp_name: str) -> Optional[Path]:
+    """定位官方库 .kicad_mod: 先按 lib 精确, 再全库精确同名 (绝不近似匹配, 避免张冠李戴)。"""
+    if not _FP_LIB_ROOT or not isinstance(fp_name, str) or not fp_name.strip():
+        return None
+    if isinstance(fp_lib, str) and fp_lib.strip():
+        direct = _FP_LIB_ROOT / f"{fp_lib}.pretty" / f"{fp_name}.kicad_mod"
+        if direct.exists():
+            return direct
+    return _fp_index().get(fp_name)
 
 
 def _real_extent(fp_lib: str, fp_name: str) -> Optional[Tuple[float, float]]:
     """从官方封装库 .kicad_mod 的焊盘外接框算半宽/半高 (供布局间隔), 找不到返回 None。"""
-    if not _FP_LIB_ROOT or not isinstance(fp_lib, str) or not fp_lib.strip():
-        return None
-    if not isinstance(fp_name, str) or not fp_name.strip():
-        return None
-    path = _FP_LIB_ROOT / f"{fp_lib}.pretty" / f"{fp_name}.kicad_mod"
-    if not path.exists():
-        safe = re.sub(r"[\[\]*?]", "", fp_lib)
-        libs = list(_FP_LIB_ROOT.glob(f"*{safe}*.pretty")) if safe else []
-        if libs:
-            path = libs[0] / f"{fp_name}.kicad_mod"
-    if not path.exists():
+    path = fp_mod_path(fp_lib, fp_name)
+    if path is None or not path.exists():
         return None
     try:
         text = path.read_text(encoding="utf-8", errors="ignore")

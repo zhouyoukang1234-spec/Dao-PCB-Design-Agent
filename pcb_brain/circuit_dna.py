@@ -1053,11 +1053,13 @@ def resolve_pin_names(dna: DNA) -> DNA:
     if not resolver.available:
         return dna
 
-    # ref → 归一化引脚名 → 焊盘号 (来自该元件 value 对应的符号)
+    # ref → value (用于按器件符号解析功能引脚名) + 归一化兜底映射
+    ref_value: Dict[str, str] = {}
     ref_pinmap: Dict[str, Dict[str, str]] = {}
     for comp in dna.components:
         if not isinstance(comp.value, str):
             continue
+        ref_value[comp.ref] = comp.value
         pm = resolver.pin_map(comp.value)
         if pm:
             ref_pinmap[comp.ref] = {_norm_pin(name): num for name, num in pm.items()}
@@ -1066,8 +1068,11 @@ def resolve_pin_names(dna: DNA) -> DNA:
         new_conns = []
         for ref, pin in conns:
             p = str(pin)
-            if not p.isdigit() and ref in ref_pinmap:
-                num = ref_pinmap[ref].get(_norm_pin(p))
+            if not p.isdigit() and ref in ref_value:
+                # 先用极性感知解析 (桥接 RSTn↔~{RST} / TX+↔TXP / VCC↔VDD 等记法差异)
+                num = resolver.resolve(ref_value[ref], p)
+                if num is None and ref in ref_pinmap:   # 兜底: 朴素归一化精确命中
+                    num = ref_pinmap[ref].get(_norm_pin(p))
                 if num is not None:
                     p = num
             new_conns.append((ref, p))

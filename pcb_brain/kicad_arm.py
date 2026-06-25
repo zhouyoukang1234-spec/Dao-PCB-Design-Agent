@@ -235,18 +235,15 @@ class KiCadArm:
         """解析.kicad_mod封装文件，提取焊盘数据（无需pcbnew）"""
         if not self.fp_dir:
             return []
-        # 空/非法的 fp_lib·fp_name (D 类诚实留白件) → 直接交回内置/留白, 勿让 glob 崩
-        if not isinstance(fp_lib, str) or not fp_lib.strip():
-            return []
         if not isinstance(fp_name, str) or not fp_name.strip():
             return []
-        fp_path = self.fp_dir / f"{fp_lib}.pretty" / f"{fp_name}.kicad_mod"
-        if not fp_path.exists():
-            safe = re.sub(r"[\[\]*?]", "", fp_lib)  # 去掉会破坏 glob 的元字符
-            libs = list(self.fp_dir.glob(f"*{safe}*.pretty")) if safe else []
-            if libs:
-                fp_path = libs[0] / f"{fp_name}.kicad_mod"
-        if not fp_path.exists():
+        # 精确定位 .kicad_mod: 先 lib 精确, 再全库精确同名 (绝不近似, 避免张冠李戴); 找不到→留白
+        try:
+            from footprint_pads import fp_mod_path
+            fp_path = fp_mod_path(fp_lib, fp_name)
+        except Exception:
+            fp_path = None
+        if fp_path is None or not fp_path.exists():
             log.debug(f"封装文件未找到: {fp_lib}:{fp_name}")
             return []
         text = fp_path.read_text(encoding="utf-8")
