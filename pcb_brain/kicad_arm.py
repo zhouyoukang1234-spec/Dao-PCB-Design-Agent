@@ -346,9 +346,20 @@ class KiCadArm:
 
         # ── 元件 + 真实焊盘 ───────────────────────────────────
         fp_pad_counts = {}
+        builtin_used = 0
         for comp in dna.components:
             x, y = comp.pos
             fp_pads = self._parse_fp_pads(comp.fp_lib, comp.fp_name)
+            if not fp_pads:
+                # KiCad 封装库不在场时, 对几何确定的标准封装由第一性原理生成焊盘
+                try:
+                    from footprint_pads import builtin_fp_pads
+                    req = {str(pin) for (ref, pin) in pad_net if ref == comp.ref}
+                    fp_pads = builtin_fp_pads(comp.fp_lib, comp.fp_name, req)
+                    if fp_pads:
+                        builtin_used += 1
+                except Exception as e:
+                    log.debug(f"内置焊盘生成跳过 {comp.ref}: {e}")
             fp_pad_counts[comp.ref] = len(fp_pads)
 
             lines.append(f'  (footprint "{comp.fp_lib}:{comp.fp_name}"')
@@ -416,7 +427,8 @@ class KiCadArm:
         total_pads = sum(fp_pad_counts.values())
         found = sum(1 for v in fp_pad_counts.values() if v > 0)
         log.info(f"✅ PCB文件(KiCad8+真实焊盘)已写入: {output_path}")
-        log.info(f"   封装: {found}/{len(dna.components)}个有焊盘数据, 共{total_pads}个焊盘")
+        log.info(f"   封装: {found}/{len(dna.components)}个有焊盘数据, 共{total_pads}个焊盘"
+                 f" (内置生成{builtin_used}个)")
         return True
 
     # ─────────────────────────────────────────────────────────

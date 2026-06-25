@@ -368,10 +368,20 @@ class PCBPipeline:
         if not pcb_path or not Path(pcb_path).exists():
             return {"violations": 0, "status": "skipped", "note": "无PCB文件"}
         if not self.env["kicad_cli"]:
+            # kicad-cli 不在场 → 先用纯 Python 引擎跑真实 DRC (kicad_origin)
+            try:
+                from fab_origin import origin_drc
+                od = origin_drc(pcb_path)
+                if od and od.get("status") == "kicad_origin":
+                    print(f"   → DRC(纯Python kicad_origin): "
+                          f"违规={od['violations']} 警告={od.get('warnings', 0)}")
+                    return od
+            except Exception as e:
+                log.debug(f"kicad_origin DRC 跳过: {e}")
             bom_est = estimate_bom_cost(CircuitDNA.get(self.template_name))
             result = {
                 "violations": 0, "status": "no_kicad_cli",
-                "note": "kicad-cli未找到，跳过DRC",
+                "note": "kicad-cli未找到，且kicad_origin不可用，跳过DRC",
                 "bom_cost": bom_est["components"],
             }
             print(f"   → kicad-cli未找到，跳过DRC (安装KiCad后可用)")
@@ -389,8 +399,18 @@ class PCBPipeline:
         if not pcb_path or not Path(pcb_path).exists():
             return {"status": "skipped", "gerber_dir": gerber_dir}
         if not self.env["kicad_cli"]:
+            # kicad-cli 不在场 → 先用纯 Python 引擎产真实 Gerber (kicad_origin)
+            try:
+                from fab_origin import origin_gerber
+                og = origin_gerber(pcb_path, gerber_dir)
+                if og and og.get("status") == "kicad_origin":
+                    print(f"   → 真实Gerber(纯Python kicad_origin): "
+                          f"{og['file_count']}个文件 → {gerber_dir}")
+                    return og
+            except Exception as e:
+                log.debug(f"kicad_origin Gerber 跳过: {e}")
             _mock_gerbers(gerber_dir, self.template_name)
-            print(f"   → 模拟Gerber已生成 (kicad-cli未安装): {gerber_dir}")
+            print(f"   → 模拟Gerber已生成 (kicad-cli与kicad_origin均不可用): {gerber_dir}")
             return {"status": "mock", "gerber_dir": gerber_dir}
         arm = KiCadArm()
         try:
@@ -503,9 +523,33 @@ class PCBPipeline:
         report_path = self.output_dir / "pipeline_report.json"
         report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
 
+        # ── 预测编码核验: 不信任"阶段=ok", 从产物反演真值, 算预测误差 ──
+        # success(阶段执行) ≠ delivered(产物真实可交付)。把真实误差信号显式暴露出来。
+        verdict = None
+        if dna is not None and pcb_path:
+            try:
+                from pcb_predict import predict_verify
+                verdict = predict_verify(self.template_name, self.output_dir)
+                report["delivered"] = verdict.delivered
+                report["free_energy"] = verdict.free_energy
+                report["delivery_confidence"] = verdict.confidence
+                report["delivery_next_action"] = verdict.next_action
+                report["surprises"] = verdict.to_dict()["surprises"]
+                report_path.write_text(
+                    json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+            except Exception as e:  # 核验失败不应阻断流水线
+                log.warning(f"预测编码核验跳过: {e}")
+
         print(f"\n{'='*60}")
         if success:
-            print(f"✅ 流水线完成 — {ok_stages}/{len(self.stages)} 阶段成功  ({elapsed}s)")
+            print(f"✅ 阶段执行 — {ok_stages}/{len(self.stages)} 阶段成功  ({elapsed}s)")
+            if verdict is not None:
+                if verdict.delivered:
+                    print("✅ 实质交付 — 预测误差(自由能)=0, 产物真实可交付")
+                else:
+                    print(f"❌ 实质未交付 — 自由能={verdict.free_energy} "
+                          f"(置信度{verdict.confidence}); 阶段虽过, 产物仍空转")
+                    print(f"   下一步 — {verdict.next_action}")
         else:
             print(f"❌ 流水线失败: {error}")
         print(f"   输出目录: {self.output_dir}")
