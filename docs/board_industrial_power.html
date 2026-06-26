@@ -37,11 +37,54 @@ th{background:#0d2233;color:#7fa8c9}
 .stat .n{font-size:26px;font-weight:700;color:#fff}
 .stat .l{font-size:12px;color:#7fa8c9}
 .back{margin-bottom:16px;display:inline-block}
+/* ── 质量评分卡 ── */
+.grade{display:inline-flex;align-items:center;justify-content:center;
+  width:34px;height:34px;border-radius:8px;font-weight:800;font-size:18px;
+  color:#06121a}
+.gA{background:#39ff14}.gB{background:#5be3c0}.gC{background:#ffd24d}
+.gD{background:#ff9b3d}.gF{background:#ff5b5b}
+.score-big{font-size:40px;font-weight:800;color:#fff;line-height:1}
+.score-of{font-size:15px;color:#7fa8c9}
+.headline{font-size:15px;margin:10px 0 4px;padding:10px 14px;border-radius:8px;
+  background:#0d1620;border-left:4px solid #39ff14}
+.headline.bad{border-left-color:#ff5b5b}
+.mfg{display:inline-block;padding:2px 10px;border-radius:10px;font-size:12px;
+  font-weight:700}
+.mfg-ok{background:#0d3b2e;color:#39ff14}
+.mfg-ng{background:#3b0d12;color:#ff6b6b}
+.dim{margin:8px 0}
+.dim .top{display:flex;justify-content:space-between;font-size:13px}
+.dim .lab{color:#cfe8ff}.dim .val{color:#7fa8c9}
+.bar{height:9px;border-radius:5px;background:#16242f;overflow:hidden;margin-top:3px}
+.bar>i{display:block;height:100%;border-radius:5px}
+.dim .det{font-size:12px;color:#6f93b0;margin-top:2px}
+.fixes{margin:10px 0 0;padding-left:0;list-style:none}
+.fixes li{background:#1c1407;border-left:3px solid #ffcc33;padding:6px 10px;
+  margin:5px 0;border-radius:4px;font-size:13px;color:#ffe2a6}
+.scorecard{background:#0d1620;border:1px solid #16324a;border-radius:10px;
+  padding:16px 18px;margin:14px 0}
+.schead{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.mini-grade{font-size:12px;color:#7fa8c9;margin-top:4px}
 </style></head><body>
-<header><h1>industrial_power</h1>
-  <div class="sub"><span class="badge b-ok">零缺陷</span></div></header>
+<header><h1><span class="grade gA" style="vertical-align:middle;
+  margin-right:10px">A</span>industrial_power</h1>
+  <div class="sub">客观分 98.8/100 · <span class="badge b-ok">零缺陷</span></div></header>
 <div class="wrap">
   <a class="back" href="index.html">← 返回全板列表</a>
+  
+  <div class="scorecard">
+    <div class="schead">
+      <span class="grade gA" style="width:48px;height:48px;font-size:26px">A</span>
+      <div><span class="score-big">98.8</span>
+        <span class="score-of">/ 100 客观质量分</span>
+        <div class="mini-grade"><span class="mfg mfg-ok">✓ 可制造 (无短路无开路)</span></div></div>
+    </div>
+    <div class="headline">可直接投产: 无短路无开路, 各维度优良。</div>
+    <h3 style="margin:16px 0 4px">六维度分解</h3>
+    <div class="dim"><div class="top"><span class="lab">连通完整性 <span style="color:#56708a">(权重30)</span></span><span class="val">100/100</span></div><div class="bar"><i style="width:100%;background:#39ff14"></i></div><div class="det">8/8 多脚网全连通</div></div><div class="dim"><div class="top"><span class="lab">短路安全 <span style="color:#56708a">(权重25)</span></span><span class="val">100/100</span></div><div class="bar"><i style="width:100%;background:#39ff14"></i></div><div class="det">无任何硬短路</div></div><div class="dim"><div class="top"><span class="lab">间距余量 <span style="color:#56708a">(权重12)</span></span><span class="val">100/100</span></div><div class="bar"><i style="width:100%;background:#39ff14"></i></div><div class="det">0 处间距不足 / 135 走线</div></div><div class="dim"><div class="top"><span class="lab">可制造性 <span style="color:#56708a">(权重13)</span></span><span class="val">100/100</span></div><div class="bar"><i style="width:100%;background:#39ff14"></i></div><div class="det">185/185 项符合 JLCPCB 工艺</div></div><div class="dim"><div class="top"><span class="lab">电源地完整 <span style="color:#56708a">(权重12)</span></span><span class="val">100/100</span></div><div class="bar"><i style="width:100%;background:#39ff14"></i></div><div class="det">GND 覆盖 100% · 8 电容 / 3 IC</div></div><div class="dim"><div class="top"><span class="lab">布局与规则 <span style="color:#56708a">(权重8)</span></span><span class="val">85/100</span></div><div class="bar"><i style="width:85%;background:#5be3c0"></i></div><div class="det">利用率 2% · 出板 0 · 重号 0</div></div>
+    <h3 style="margin:16px 0 4px">还差什么 (按改进杠杆排序)</h3>
+    <ul class="fixes"><li>[布局与规则] 板面利用率仅 2% (元件过于空旷, 易致绕线远)</li></ul>
+  </div>
   <div class="thumb" style="background:#0b0f14;padding:12px;border-radius:8px">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 521" width="100%" style="background:#0b0f14;border-radius:8px">
 <rect x="24.2" y="24.2" width="851.5" height="473.0" fill="#0d3b2e" stroke="#39ff14" stroke-width="2" rx="4" opacity="0.85"/>

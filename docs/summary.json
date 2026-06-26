@@ -9,6 +9,68 @@
       "vias": 2,
       "footprints": 4,
       "nets": 4
+    },
+    "quality": {
+      "board_name": "ams1117_power",
+      "overall": 98.8,
+      "grade": "A",
+      "manufacturable": true,
+      "headline": "可直接投产: 无短路无开路, 各维度优良。",
+      "dimensions": [
+        {
+          "key": "connectivity",
+          "label": "连通完整性",
+          "score": 100.0,
+          "weight": 30,
+          "detail": "3/3 多脚网全连通",
+          "issues": []
+        },
+        {
+          "key": "shorts",
+          "label": "短路安全",
+          "score": 100.0,
+          "weight": 25,
+          "detail": "无任何硬短路",
+          "issues": []
+        },
+        {
+          "key": "clearance",
+          "label": "间距余量",
+          "score": 100.0,
+          "weight": 12,
+          "detail": "0 处间距不足 / 22 走线",
+          "issues": []
+        },
+        {
+          "key": "dfm",
+          "label": "可制造性",
+          "score": 100.0,
+          "weight": 13,
+          "detail": "26/26 项符合 JLCPCB 工艺",
+          "issues": []
+        },
+        {
+          "key": "power",
+          "label": "电源地完整",
+          "score": 100.0,
+          "weight": 12,
+          "detail": "GND 覆盖 100% · 3 电容 / 1 IC",
+          "issues": []
+        },
+        {
+          "key": "placement",
+          "label": "布局与规则",
+          "score": 85.0,
+          "weight": 8,
+          "detail": "利用率 5% · 出板 0 · 重号 0",
+          "issues": [
+            "板面利用率仅 5% (元件过于空旷, 易致绕线远)"
+          ]
+        }
+      ],
+      "fix_list": [
+        "[布局与规则] 板面利用率仅 5% (元件过于空旷, 易致绕线远)"
+      ]
     }
   },
   "ch32v003_minimal": {
@@ -46,6 +108,74 @@
       "vias": 53,
       "footprints": 12,
       "nets": 21
+    },
+    "quality": {
+      "board_name": "ch32v003_minimal",
+      "overall": 51.9,
+      "grade": "F",
+      "manufacturable": false,
+      "headline": "不可制造: 2 条网络开路 (功能不全), 必须先布通。",
+      "dimensions": [
+        {
+          "key": "connectivity",
+          "label": "连通完整性",
+          "score": 89.5,
+          "weight": 30,
+          "detail": "17/19 多脚网全连通",
+          "issues": [
+            "2 条网络未连通(开路): PD0, PD2"
+          ]
+        },
+        {
+          "key": "shorts",
+          "label": "短路安全",
+          "score": 100.0,
+          "weight": 25,
+          "detail": "无任何硬短路",
+          "issues": []
+        },
+        {
+          "key": "clearance",
+          "label": "间距余量",
+          "score": 89.1,
+          "weight": 12,
+          "detail": "11 处间距不足 / 201 走线",
+          "issues": [
+            "11 处间距不足(可制造但偏紧, 占走线 5%)"
+          ]
+        },
+        {
+          "key": "dfm",
+          "label": "可制造性",
+          "score": 100.0,
+          "weight": 13,
+          "detail": "326/326 项符合 JLCPCB 工艺",
+          "issues": []
+        },
+        {
+          "key": "power",
+          "label": "电源地完整",
+          "score": 100.0,
+          "weight": 12,
+          "detail": "GND 覆盖 100% · 4 电容 / 2 IC",
+          "issues": []
+        },
+        {
+          "key": "placement",
+          "label": "布局与规则",
+          "score": 85.0,
+          "weight": 8,
+          "detail": "利用率 2% · 出板 0 · 重号 0",
+          "issues": [
+            "板面利用率仅 2% (元件过于空旷, 易致绕线远)"
+          ]
+        }
+      ],
+      "fix_list": [
+        "[连通完整性] 2 条网络未连通(开路): PD0, PD2",
+        "[间距余量] 11 处间距不足(可制造但偏紧, 占走线 5%)",
+        "[布局与规则] 板面利用率仅 2% (元件过于空旷, 易致绕线远)"
+      ]
     }
   },
   "drone_aerial_h743": {
@@ -83,6 +213,77 @@
       "vias": 208,
       "footprints": 68,
       "nets": 53
+    },
+    "quality": {
+      "board_name": "drone_aerial_h743",
+      "overall": 43.5,
+      "grade": "F",
+      "manufacturable": false,
+      "headline": "不可制造: 13 条网络开路 (功能不全), 必须先布通。",
+      "dimensions": [
+        {
+          "key": "connectivity",
+          "label": "连通完整性",
+          "score": 75.0,
+          "weight": 30,
+          "detail": "39/52 多脚网全连通",
+          "issues": [
+            "13 条网络未连通(开路): VBUS_SENSE, OSC_OUT, MCU_BOOT0, SPI1_MOSI, SPI1_CS1, IMU1_INT, SPI2_MOSI, SPI2_MISO 等 13 条"
+          ]
+        },
+        {
+          "key": "shorts",
+          "label": "短路安全",
+          "score": 100.0,
+          "weight": 25,
+          "detail": "无任何硬短路",
+          "issues": []
+        },
+        {
+          "key": "clearance",
+          "label": "间距余量",
+          "score": 87.9,
+          "weight": 12,
+          "detail": "50 处间距不足 / 827 走线",
+          "issues": [
+            "50 处间距不足(可制造但偏紧, 占走线 6%)"
+          ]
+        },
+        {
+          "key": "dfm",
+          "label": "可制造性",
+          "score": 100.0,
+          "weight": 13,
+          "detail": "1263/1263 项符合 JLCPCB 工艺",
+          "issues": []
+        },
+        {
+          "key": "power",
+          "label": "电源地完整",
+          "score": 80.0,
+          "weight": 12,
+          "detail": "GND 覆盖 100% · 27 电容 / 8 IC",
+          "issues": [
+            "电源/地网未连通: VBUS_SENSE"
+          ]
+        },
+        {
+          "key": "placement",
+          "label": "布局与规则",
+          "score": 85.0,
+          "weight": 8,
+          "detail": "利用率 4% · 出板 0 · 重号 0",
+          "issues": [
+            "板面利用率仅 4% (元件过于空旷, 易致绕线远)"
+          ]
+        }
+      ],
+      "fix_list": [
+        "[连通完整性] 13 条网络未连通(开路): VBUS_SENSE, OSC_OUT, MCU_BOOT0, SPI1_MOSI, SPI1_CS1, IMU1_INT, SPI2_MOSI, SPI2_MISO 等 13 条",
+        "[电源地完整] 电源/地网未连通: VBUS_SENSE",
+        "[间距余量] 50 处间距不足(可制造但偏紧, 占走线 6%)",
+        "[布局与规则] 板面利用率仅 4% (元件过于空旷, 易致绕线远)"
+      ]
     }
   },
   "drone_flight_controller": {
@@ -120,6 +321,77 @@
       "vias": 38,
       "footprints": 38,
       "nets": 19
+    },
+    "quality": {
+      "board_name": "drone_flight_controller",
+      "overall": 29.0,
+      "grade": "F",
+      "manufacturable": false,
+      "headline": "不可制造: 9 条网络开路 (功能不全), 必须先布通。",
+      "dimensions": [
+        {
+          "key": "connectivity",
+          "label": "连通完整性",
+          "score": 50.0,
+          "weight": 30,
+          "detail": "9/18 多脚网全连通",
+          "issues": [
+            "9 条网络未连通(开路): VCC_3V3, MCU_RESET, BOOT0, I2C_SDA, MOTOR1_PWM, MOTOR2_PWM, MOTOR3_PWM, MOTOR4_PWM 等 9 条"
+          ]
+        },
+        {
+          "key": "shorts",
+          "label": "短路安全",
+          "score": 100.0,
+          "weight": 25,
+          "detail": "无任何硬短路",
+          "issues": []
+        },
+        {
+          "key": "clearance",
+          "label": "间距余量",
+          "score": 84.7,
+          "weight": 12,
+          "detail": "19 处间距不足 / 249 走线",
+          "issues": [
+            "19 处间距不足(可制造但偏紧, 占走线 8%)"
+          ]
+        },
+        {
+          "key": "dfm",
+          "label": "可制造性",
+          "score": 100.0,
+          "weight": 13,
+          "detail": "363/363 项符合 JLCPCB 工艺",
+          "issues": []
+        },
+        {
+          "key": "power",
+          "label": "电源地完整",
+          "score": 80.0,
+          "weight": 12,
+          "detail": "GND 覆盖 100% · 14 电容 / 5 IC",
+          "issues": [
+            "电源/地网未连通: VCC_3V3"
+          ]
+        },
+        {
+          "key": "placement",
+          "label": "布局与规则",
+          "score": 85.0,
+          "weight": 8,
+          "detail": "利用率 2% · 出板 0 · 重号 0",
+          "issues": [
+            "板面利用率仅 2% (元件过于空旷, 易致绕线远)"
+          ]
+        }
+      ],
+      "fix_list": [
+        "[连通完整性] 9 条网络未连通(开路): VCC_3V3, MCU_RESET, BOOT0, I2C_SDA, MOTOR1_PWM, MOTOR2_PWM, MOTOR3_PWM, MOTOR4_PWM 等 9 条",
+        "[电源地完整] 电源/地网未连通: VCC_3V3",
+        "[间距余量] 19 处间距不足(可制造但偏紧, 占走线 8%)",
+        "[布局与规则] 板面利用率仅 2% (元件过于空旷, 易致绕线远)"
+      ]
     }
   },
   "esp32_servo_wifi": {
@@ -139,6 +411,71 @@
       "vias": 18,
       "footprints": 16,
       "nets": 14
+    },
+    "quality": {
+      "board_name": "esp32_servo_wifi",
+      "overall": 98.6,
+      "grade": "A",
+      "manufacturable": true,
+      "headline": "可直接投产: 无短路无开路, 各维度优良。",
+      "dimensions": [
+        {
+          "key": "connectivity",
+          "label": "连通完整性",
+          "score": 100.0,
+          "weight": 30,
+          "detail": "10/10 多脚网全连通",
+          "issues": []
+        },
+        {
+          "key": "shorts",
+          "label": "短路安全",
+          "score": 100.0,
+          "weight": 25,
+          "detail": "无任何硬短路",
+          "issues": []
+        },
+        {
+          "key": "clearance",
+          "label": "间距余量",
+          "score": 98.3,
+          "weight": 12,
+          "detail": "1 处间距不足 / 116 走线",
+          "issues": [
+            "1 处间距不足(可制造但偏紧, 占走线 1%)"
+          ]
+        },
+        {
+          "key": "dfm",
+          "label": "可制造性",
+          "score": 100.0,
+          "weight": 13,
+          "detail": "171/171 项符合 JLCPCB 工艺",
+          "issues": []
+        },
+        {
+          "key": "power",
+          "label": "电源地完整",
+          "score": 100.0,
+          "weight": 12,
+          "detail": "GND 覆盖 100% · 5 电容 / 3 IC",
+          "issues": []
+        },
+        {
+          "key": "placement",
+          "label": "布局与规则",
+          "score": 85.0,
+          "weight": 8,
+          "detail": "利用率 8% · 出板 0 · 重号 0",
+          "issues": [
+            "板面利用率仅 8% (元件过于空旷, 易致绕线远)"
+          ]
+        }
+      ],
+      "fix_list": [
+        "[布局与规则] 板面利用率仅 8% (元件过于空旷, 易致绕线远)",
+        "[间距余量] 1 处间距不足(可制造但偏紧, 占走线 1%)"
+      ]
     }
   },
   "esp32s3_rs485_can": {
@@ -158,6 +495,74 @@
       "vias": 59,
       "footprints": 26,
       "nets": 28
+    },
+    "quality": {
+      "board_name": "esp32s3_rs485_can",
+      "overall": 98.4,
+      "grade": "A",
+      "manufacturable": true,
+      "headline": "可直接投产: 无短路无开路, 各维度优良。",
+      "dimensions": [
+        {
+          "key": "connectivity",
+          "label": "连通完整性",
+          "score": 100.0,
+          "weight": 30,
+          "detail": "25/25 多脚网全连通",
+          "issues": []
+        },
+        {
+          "key": "shorts",
+          "label": "短路安全",
+          "score": 100.0,
+          "weight": 25,
+          "detail": "无任何硬短路",
+          "issues": []
+        },
+        {
+          "key": "clearance",
+          "label": "间距余量",
+          "score": 97.8,
+          "weight": 12,
+          "detail": "3 处间距不足 / 274 走线",
+          "issues": [
+            "3 处间距不足(可制造但偏紧, 占走线 1%)"
+          ]
+        },
+        {
+          "key": "dfm",
+          "label": "可制造性",
+          "score": 99.0,
+          "weight": 13,
+          "detail": "410/414 项符合 JLCPCB 工艺",
+          "issues": [
+            "焊盘环宽不足 × 4"
+          ]
+        },
+        {
+          "key": "power",
+          "label": "电源地完整",
+          "score": 100.0,
+          "weight": 12,
+          "detail": "GND 覆盖 100% · 7 电容 / 6 IC",
+          "issues": []
+        },
+        {
+          "key": "placement",
+          "label": "布局与规则",
+          "score": 85.0,
+          "weight": 8,
+          "detail": "利用率 6% · 出板 0 · 重号 0",
+          "issues": [
+            "板面利用率仅 6% (元件过于空旷, 易致绕线远)"
+          ]
+        }
+      ],
+      "fix_list": [
+        "[布局与规则] 板面利用率仅 6% (元件过于空旷, 易致绕线远)",
+        "[间距余量] 3 处间距不足(可制造但偏紧, 占走线 1%)",
+        "[可制造性] 焊盘环宽不足 × 4"
+      ]
     }
   },
   "gd32f103_minimal": {
@@ -195,6 +600,74 @@
       "vias": 57,
       "footprints": 18,
       "nets": 22
+    },
+    "quality": {
+      "board_name": "gd32f103_minimal",
+      "overall": 52.5,
+      "grade": "F",
+      "manufacturable": false,
+      "headline": "不可制造: 2 条网络开路 (功能不全), 必须先布通。",
+      "dimensions": [
+        {
+          "key": "connectivity",
+          "label": "连通完整性",
+          "score": 90.5,
+          "weight": 30,
+          "detail": "19/21 多脚网全连通",
+          "issues": [
+            "2 条网络未连通(开路): NRST, PA0"
+          ]
+        },
+        {
+          "key": "shorts",
+          "label": "短路安全",
+          "score": 100.0,
+          "weight": 25,
+          "detail": "无任何硬短路",
+          "issues": []
+        },
+        {
+          "key": "clearance",
+          "label": "间距余量",
+          "score": 87.6,
+          "weight": 12,
+          "detail": "16 处间距不足 / 259 走线",
+          "issues": [
+            "16 处间距不足(可制造但偏紧, 占走线 6%)"
+          ]
+        },
+        {
+          "key": "dfm",
+          "label": "可制造性",
+          "score": 100.0,
+          "weight": 13,
+          "detail": "399/399 项符合 JLCPCB 工艺",
+          "issues": []
+        },
+        {
+          "key": "power",
+          "label": "电源地完整",
+          "score": 100.0,
+          "weight": 12,
+          "detail": "GND 覆盖 100% · 7 电容 / 1 IC",
+          "issues": []
+        },
+        {
+          "key": "placement",
+          "label": "布局与规则",
+          "score": 85.0,
+          "weight": 8,
+          "detail": "利用率 2% · 出板 0 · 重号 0",
+          "issues": [
+            "板面利用率仅 2% (元件过于空旷, 易致绕线远)"
+          ]
+        }
+      ],
+      "fix_list": [
+        "[连通完整性] 2 条网络未连通(开路): NRST, PA0",
+        "[间距余量] 16 处间距不足(可制造但偏紧, 占走线 6%)",
+        "[布局与规则] 板面利用率仅 2% (元件过于空旷, 易致绕线远)"
+      ]
     }
   },
   "industrial_power": {
@@ -207,6 +680,68 @@
       "vias": 21,
       "footprints": 20,
       "nets": 9
+    },
+    "quality": {
+      "board_name": "industrial_power",
+      "overall": 98.8,
+      "grade": "A",
+      "manufacturable": true,
+      "headline": "可直接投产: 无短路无开路, 各维度优良。",
+      "dimensions": [
+        {
+          "key": "connectivity",
+          "label": "连通完整性",
+          "score": 100.0,
+          "weight": 30,
+          "detail": "8/8 多脚网全连通",
+          "issues": []
+        },
+        {
+          "key": "shorts",
+          "label": "短路安全",
+          "score": 100.0,
+          "weight": 25,
+          "detail": "无任何硬短路",
+          "issues": []
+        },
+        {
+          "key": "clearance",
+          "label": "间距余量",
+          "score": 100.0,
+          "weight": 12,
+          "detail": "0 处间距不足 / 135 走线",
+          "issues": []
+        },
+        {
+          "key": "dfm",
+          "label": "可制造性",
+          "score": 100.0,
+          "weight": 13,
+          "detail": "185/185 项符合 JLCPCB 工艺",
+          "issues": []
+        },
+        {
+          "key": "power",
+          "label": "电源地完整",
+          "score": 100.0,
+          "weight": 12,
+          "detail": "GND 覆盖 100% · 8 电容 / 3 IC",
+          "issues": []
+        },
+        {
+          "key": "placement",
+          "label": "布局与规则",
+          "score": 85.0,
+          "weight": 8,
+          "detail": "利用率 2% · 出板 0 · 重号 0",
+          "issues": [
+            "板面利用率仅 2% (元件过于空旷, 易致绕线远)"
+          ]
+        }
+      ],
+      "fix_list": [
+        "[布局与规则] 板面利用率仅 2% (元件过于空旷, 易致绕线远)"
+      ]
     }
   },
   "lcd_tft_43": {
@@ -244,6 +779,74 @@
       "vias": 52,
       "footprints": 18,
       "nets": 26
+    },
+    "quality": {
+      "board_name": "lcd_tft_43",
+      "overall": 37.8,
+      "grade": "F",
+      "manufacturable": false,
+      "headline": "不可制造: 8 条网络开路 (功能不全), 必须先布通。",
+      "dimensions": [
+        {
+          "key": "connectivity",
+          "label": "连通完整性",
+          "score": 65.2,
+          "weight": 30,
+          "detail": "15/23 多脚网全连通",
+          "issues": [
+            "8 条网络未连通(开路): LCD_HSYNC, LCD_VSYNC, LCD_CLK, LCD_DE, TP_SCL, TP_INT, CAM_PCLK, CAM_VSYNC"
+          ]
+        },
+        {
+          "key": "shorts",
+          "label": "短路安全",
+          "score": 100.0,
+          "weight": 25,
+          "detail": "无任何硬短路",
+          "issues": []
+        },
+        {
+          "key": "clearance",
+          "label": "间距余量",
+          "score": 73.7,
+          "weight": 12,
+          "detail": "30 处间距不足 / 228 走线",
+          "issues": [
+            "30 处间距不足(可制造但偏紧, 占走线 13%)"
+          ]
+        },
+        {
+          "key": "dfm",
+          "label": "可制造性",
+          "score": 100.0,
+          "weight": 13,
+          "detail": "333/333 项符合 JLCPCB 工艺",
+          "issues": []
+        },
+        {
+          "key": "power",
+          "label": "电源地完整",
+          "score": 100.0,
+          "weight": 12,
+          "detail": "GND 覆盖 100% · 4 电容 / 3 IC",
+          "issues": []
+        },
+        {
+          "key": "placement",
+          "label": "布局与规则",
+          "score": 85.0,
+          "weight": 8,
+          "detail": "利用率 5% · 出板 0 · 重号 0",
+          "issues": [
+            "板面利用率仅 5% (元件过于空旷, 易致绕线远)"
+          ]
+        }
+      ],
+      "fix_list": [
+        "[连通完整性] 8 条网络未连通(开路): LCD_HSYNC, LCD_VSYNC, LCD_CLK, LCD_DE, TP_SCL, TP_INT, CAM_PCLK, CAM_VSYNC",
+        "[间距余量] 30 处间距不足(可制造但偏紧, 占走线 13%)",
+        "[布局与规则] 板面利用率仅 5% (元件过于空旷, 易致绕线远)"
+      ]
     }
   },
   "led_indicator": {
@@ -263,6 +866,71 @@
       "vias": 12,
       "footprints": 9,
       "nets": 6
+    },
+    "quality": {
+      "board_name": "led_indicator",
+      "overall": 98.5,
+      "grade": "A",
+      "manufacturable": true,
+      "headline": "可直接投产: 无短路无开路, 各维度优良。",
+      "dimensions": [
+        {
+          "key": "connectivity",
+          "label": "连通完整性",
+          "score": 100.0,
+          "weight": 30,
+          "detail": "5/5 多脚网全连通",
+          "issues": []
+        },
+        {
+          "key": "shorts",
+          "label": "短路安全",
+          "score": 100.0,
+          "weight": 25,
+          "detail": "无任何硬短路",
+          "issues": []
+        },
+        {
+          "key": "clearance",
+          "label": "间距余量",
+          "score": 97.4,
+          "weight": 12,
+          "detail": "1 处间距不足 / 76 走线",
+          "issues": [
+            "1 处间距不足(可制造但偏紧, 占走线 1%)"
+          ]
+        },
+        {
+          "key": "dfm",
+          "label": "可制造性",
+          "score": 100.0,
+          "weight": 13,
+          "detail": "106/106 项符合 JLCPCB 工艺",
+          "issues": []
+        },
+        {
+          "key": "power",
+          "label": "电源地完整",
+          "score": 100.0,
+          "weight": 12,
+          "detail": "GND 覆盖 100% · 无 IC",
+          "issues": []
+        },
+        {
+          "key": "placement",
+          "label": "布局与规则",
+          "score": 85.0,
+          "weight": 8,
+          "detail": "利用率 2% · 出板 0 · 重号 0",
+          "issues": [
+            "板面利用率仅 2% (元件过于空旷, 易致绕线远)"
+          ]
+        }
+      ],
+      "fix_list": [
+        "[布局与规则] 板面利用率仅 2% (元件过于空旷, 易致绕线远)",
+        "[间距余量] 1 处间距不足(可制造但偏紧, 占走线 1%)"
+      ]
     }
   },
   "lora_sx1276_gateway": {
@@ -282,6 +950,68 @@
       "vias": 19,
       "footprints": 12,
       "nets": 12
+    },
+    "quality": {
+      "board_name": "lora_sx1276_gateway",
+      "overall": 99.6,
+      "grade": "A",
+      "manufacturable": true,
+      "headline": "可直接投产: 无短路无开路, 各维度优良。",
+      "dimensions": [
+        {
+          "key": "connectivity",
+          "label": "连通完整性",
+          "score": 100.0,
+          "weight": 30,
+          "detail": "11/11 多脚网全连通",
+          "issues": []
+        },
+        {
+          "key": "shorts",
+          "label": "短路安全",
+          "score": 100.0,
+          "weight": 25,
+          "detail": "无任何硬短路",
+          "issues": []
+        },
+        {
+          "key": "clearance",
+          "label": "间距余量",
+          "score": 96.5,
+          "weight": 12,
+          "detail": "2 处间距不足 / 113 走线",
+          "issues": [
+            "2 处间距不足(可制造但偏紧, 占走线 2%)"
+          ]
+        },
+        {
+          "key": "dfm",
+          "label": "可制造性",
+          "score": 100.0,
+          "weight": 13,
+          "detail": "161/161 项符合 JLCPCB 工艺",
+          "issues": []
+        },
+        {
+          "key": "power",
+          "label": "电源地完整",
+          "score": 100.0,
+          "weight": 12,
+          "detail": "GND 覆盖 100% · 4 电容 / 2 IC",
+          "issues": []
+        },
+        {
+          "key": "placement",
+          "label": "布局与规则",
+          "score": 100.0,
+          "weight": 8,
+          "detail": "利用率 10% · 出板 0 · 重号 0",
+          "issues": []
+        }
+      ],
+      "fix_list": [
+        "[间距余量] 2 处间距不足(可制造但偏紧, 占走线 2%)"
+      ]
     }
   },
   "motor_driver_dual": {
@@ -313,6 +1043,74 @@
       "vias": 25,
       "footprints": 10,
       "nets": 15
+    },
+    "quality": {
+      "board_name": "motor_driver_dual",
+      "overall": 45.6,
+      "grade": "F",
+      "manufacturable": false,
+      "headline": "不可制造: 3 条网络开路 (功能不全), 必须先布通。",
+      "dimensions": [
+        {
+          "key": "connectivity",
+          "label": "连通完整性",
+          "score": 78.6,
+          "weight": 30,
+          "detail": "11/14 多脚网全连通",
+          "issues": [
+            "3 条网络未连通(开路): PWMA, AIN1, BIN1"
+          ]
+        },
+        {
+          "key": "shorts",
+          "label": "短路安全",
+          "score": 100.0,
+          "weight": 25,
+          "detail": "无任何硬短路",
+          "issues": []
+        },
+        {
+          "key": "clearance",
+          "label": "间距余量",
+          "score": 93.0,
+          "weight": 12,
+          "detail": "4 处间距不足 / 115 走线",
+          "issues": [
+            "4 处间距不足(可制造但偏紧, 占走线 3%)"
+          ]
+        },
+        {
+          "key": "dfm",
+          "label": "可制造性",
+          "score": 100.0,
+          "weight": 13,
+          "detail": "181/181 项符合 JLCPCB 工艺",
+          "issues": []
+        },
+        {
+          "key": "power",
+          "label": "电源地完整",
+          "score": 100.0,
+          "weight": 12,
+          "detail": "GND 覆盖 100% · 4 电容 / 1 IC",
+          "issues": []
+        },
+        {
+          "key": "placement",
+          "label": "布局与规则",
+          "score": 85.0,
+          "weight": 8,
+          "detail": "利用率 3% · 出板 0 · 重号 0",
+          "issues": [
+            "板面利用率仅 3% (元件过于空旷, 易致绕线远)"
+          ]
+        }
+      ],
+      "fix_list": [
+        "[连通完整性] 3 条网络未连通(开路): PWMA, AIN1, BIN1",
+        "[布局与规则] 板面利用率仅 3% (元件过于空旷, 易致绕线远)",
+        "[间距余量] 4 处间距不足(可制造但偏紧, 占走线 3%)"
+      ]
     }
   },
   "nrf52840_ble5": {
@@ -338,6 +1136,74 @@
       "vias": 56,
       "footprints": 13,
       "nets": 27
+    },
+    "quality": {
+      "board_name": "nrf52840_ble5",
+      "overall": 98.4,
+      "grade": "A",
+      "manufacturable": true,
+      "headline": "可直接投产: 无短路无开路, 各维度优良。",
+      "dimensions": [
+        {
+          "key": "connectivity",
+          "label": "连通完整性",
+          "score": 100.0,
+          "weight": 30,
+          "detail": "26/26 多脚网全连通",
+          "issues": []
+        },
+        {
+          "key": "shorts",
+          "label": "短路安全",
+          "score": 100.0,
+          "weight": 25,
+          "detail": "无任何硬短路",
+          "issues": []
+        },
+        {
+          "key": "clearance",
+          "label": "间距余量",
+          "score": 98.2,
+          "weight": 12,
+          "detail": "2 处间距不足 / 226 走线",
+          "issues": [
+            "2 处间距不足(可制造但偏紧, 占走线 1%)"
+          ]
+        },
+        {
+          "key": "dfm",
+          "label": "可制造性",
+          "score": 98.9,
+          "weight": 13,
+          "detail": "362/366 项符合 JLCPCB 工艺",
+          "issues": [
+            "焊盘环宽不足 × 4"
+          ]
+        },
+        {
+          "key": "power",
+          "label": "电源地完整",
+          "score": 100.0,
+          "weight": 12,
+          "detail": "GND 覆盖 100% · 4 电容 / 2 IC",
+          "issues": []
+        },
+        {
+          "key": "placement",
+          "label": "布局与规则",
+          "score": 85.0,
+          "weight": 8,
+          "detail": "利用率 3% · 出板 0 · 重号 0",
+          "issues": [
+            "板面利用率仅 3% (元件过于空旷, 易致绕线远)"
+          ]
+        }
+      ],
+      "fix_list": [
+        "[布局与规则] 板面利用率仅 3% (元件过于空旷, 易致绕线远)",
+        "[间距余量] 2 处间距不足(可制造但偏紧, 占走线 1%)",
+        "[可制造性] 焊盘环宽不足 × 4"
+      ]
     }
   },
   "rp2040_minimal": {
@@ -375,6 +1241,80 @@
       "vias": 28,
       "footprints": 21,
       "nets": 17
+    },
+    "quality": {
+      "board_name": "rp2040_minimal",
+      "overall": 29.0,
+      "grade": "F",
+      "manufacturable": false,
+      "headline": "不可制造: 8 条网络开路 (功能不全), 必须先布通。",
+      "dimensions": [
+        {
+          "key": "connectivity",
+          "label": "连通完整性",
+          "score": 50.0,
+          "weight": 30,
+          "detail": "8/16 多脚网全连通",
+          "issues": [
+            "8 条网络未连通(开路): DVDD_CORE, FLASH_SCK, FLASH_D0, FLASH_D1, FLASH_D2, FLASH_D3, XOUT, USB_DP"
+          ]
+        },
+        {
+          "key": "shorts",
+          "label": "短路安全",
+          "score": 100.0,
+          "weight": 25,
+          "detail": "无任何硬短路",
+          "issues": []
+        },
+        {
+          "key": "clearance",
+          "label": "间距余量",
+          "score": 90.7,
+          "weight": 12,
+          "detail": "6 处间距不足 / 129 走线",
+          "issues": [
+            "6 处间距不足(可制造但偏紧, 占走线 5%)"
+          ]
+        },
+        {
+          "key": "dfm",
+          "label": "可制造性",
+          "score": 98.3,
+          "weight": 13,
+          "detail": "225/229 项符合 JLCPCB 工艺",
+          "issues": [
+            "焊盘环宽不足 × 4"
+          ]
+        },
+        {
+          "key": "power",
+          "label": "电源地完整",
+          "score": 80.0,
+          "weight": 12,
+          "detail": "GND 覆盖 100% · 9 电容 / 3 IC",
+          "issues": [
+            "电源/地网未连通: DVDD_CORE"
+          ]
+        },
+        {
+          "key": "placement",
+          "label": "布局与规则",
+          "score": 85.0,
+          "weight": 8,
+          "detail": "利用率 4% · 出板 0 · 重号 0",
+          "issues": [
+            "板面利用率仅 4% (元件过于空旷, 易致绕线远)"
+          ]
+        }
+      ],
+      "fix_list": [
+        "[连通完整性] 8 条网络未连通(开路): DVDD_CORE, FLASH_SCK, FLASH_D0, FLASH_D1, FLASH_D2, FLASH_D3, XOUT, USB_DP",
+        "[电源地完整] 电源/地网未连通: DVDD_CORE",
+        "[布局与规则] 板面利用率仅 4% (元件过于空旷, 易致绕线远)",
+        "[间距余量] 6 处间距不足(可制造但偏紧, 占走线 5%)",
+        "[可制造性] 焊盘环宽不足 × 4"
+      ]
     }
   },
   "safety_protection": {
@@ -394,6 +1334,71 @@
       "vias": 24,
       "footprints": 18,
       "nets": 16
+    },
+    "quality": {
+      "board_name": "safety_protection",
+      "overall": 98.1,
+      "grade": "A",
+      "manufacturable": true,
+      "headline": "可直接投产: 无短路无开路, 各维度优良。",
+      "dimensions": [
+        {
+          "key": "connectivity",
+          "label": "连通完整性",
+          "score": 100.0,
+          "weight": 30,
+          "detail": "8/8 多脚网全连通",
+          "issues": []
+        },
+        {
+          "key": "shorts",
+          "label": "短路安全",
+          "score": 100.0,
+          "weight": 25,
+          "detail": "无任何硬短路",
+          "issues": []
+        },
+        {
+          "key": "clearance",
+          "label": "间距余量",
+          "score": 94.4,
+          "weight": 12,
+          "detail": "3 处间距不足 / 108 走线",
+          "issues": [
+            "3 处间距不足(可制造但偏紧, 占走线 3%)"
+          ]
+        },
+        {
+          "key": "dfm",
+          "label": "可制造性",
+          "score": 100.0,
+          "weight": 13,
+          "detail": "156/156 项符合 JLCPCB 工艺",
+          "issues": []
+        },
+        {
+          "key": "power",
+          "label": "电源地完整",
+          "score": 100.0,
+          "weight": 12,
+          "detail": "GND 覆盖 100% · 6 电容 / 4 IC",
+          "issues": []
+        },
+        {
+          "key": "placement",
+          "label": "布局与规则",
+          "score": 85.0,
+          "weight": 8,
+          "detail": "利用率 4% · 出板 0 · 重号 0",
+          "issues": [
+            "板面利用率仅 4% (元件过于空旷, 易致绕线远)"
+          ]
+        }
+      ],
+      "fix_list": [
+        "[布局与规则] 板面利用率仅 4% (元件过于空旷, 易致绕线远)",
+        "[间距余量] 3 处间距不足(可制造但偏紧, 占走线 3%)"
+      ]
     }
   },
   "smartwatch_core": {
@@ -431,6 +1436,71 @@
       "vias": 85,
       "footprints": 30,
       "nets": 28
+    },
+    "quality": {
+      "board_name": "smartwatch_core",
+      "overall": 44.1,
+      "grade": "F",
+      "manufacturable": false,
+      "headline": "不可制造: 6 条网络开路 (功能不全), 必须先布通。",
+      "dimensions": [
+        {
+          "key": "connectivity",
+          "label": "连通完整性",
+          "score": 76.0,
+          "weight": 30,
+          "detail": "19/25 多脚网全连通",
+          "issues": [
+            "6 条网络未连通(开路): I2C_SDA, I2C_SCL, DISP_RST, DISP_DC, DISP_CS, DISP_MOSI"
+          ]
+        },
+        {
+          "key": "shorts",
+          "label": "短路安全",
+          "score": 100.0,
+          "weight": 25,
+          "detail": "无任何硬短路",
+          "issues": []
+        },
+        {
+          "key": "clearance",
+          "label": "间距余量",
+          "score": 91.7,
+          "weight": 12,
+          "detail": "16 处间距不足 / 385 走线",
+          "issues": [
+            "16 处间距不足(可制造但偏紧, 占走线 4%)"
+          ]
+        },
+        {
+          "key": "dfm",
+          "label": "可制造性",
+          "score": 100.0,
+          "weight": 13,
+          "detail": "559/559 项符合 JLCPCB 工艺",
+          "issues": []
+        },
+        {
+          "key": "power",
+          "label": "电源地完整",
+          "score": 100.0,
+          "weight": 12,
+          "detail": "GND 覆盖 100% · 10 电容 / 7 IC",
+          "issues": []
+        },
+        {
+          "key": "placement",
+          "label": "布局与规则",
+          "score": 100.0,
+          "weight": 8,
+          "detail": "利用率 13% · 出板 0 · 重号 0",
+          "issues": []
+        }
+      ],
+      "fix_list": [
+        "[连通完整性] 6 条网络未连通(开路): I2C_SDA, I2C_SCL, DISP_RST, DISP_DC, DISP_CS, DISP_MOSI",
+        "[间距余量] 16 处间距不足(可制造但偏紧, 占走线 4%)"
+      ]
     }
   },
   "stm32f103c6_dot_matrix": {
@@ -468,6 +1538,77 @@
       "vias": 39,
       "footprints": 17,
       "nets": 23
+    },
+    "quality": {
+      "board_name": "stm32f103c6_dot_matrix",
+      "overall": 45.8,
+      "grade": "F",
+      "manufacturable": false,
+      "headline": "不可制造: 4 条网络开路 (功能不全), 必须先布通。",
+      "dimensions": [
+        {
+          "key": "connectivity",
+          "label": "连通完整性",
+          "score": 78.9,
+          "weight": 30,
+          "detail": "15/19 多脚网全连通",
+          "issues": [
+            "4 条网络未连通(开路): VCC_3V3, SWDIO, XTAL_OUT, PA6"
+          ]
+        },
+        {
+          "key": "shorts",
+          "label": "短路安全",
+          "score": 100.0,
+          "weight": 25,
+          "detail": "无任何硬短路",
+          "issues": []
+        },
+        {
+          "key": "clearance",
+          "label": "间距余量",
+          "score": 84.4,
+          "weight": 12,
+          "detail": "13 处间距不足 / 167 走线",
+          "issues": [
+            "13 处间距不足(可制造但偏紧, 占走线 8%)"
+          ]
+        },
+        {
+          "key": "dfm",
+          "label": "可制造性",
+          "score": 100.0,
+          "weight": 13,
+          "detail": "271/271 项符合 JLCPCB 工艺",
+          "issues": []
+        },
+        {
+          "key": "power",
+          "label": "电源地完整",
+          "score": 80.0,
+          "weight": 12,
+          "detail": "GND 覆盖 100% · 8 电容 / 2 IC",
+          "issues": [
+            "电源/地网未连通: VCC_3V3"
+          ]
+        },
+        {
+          "key": "placement",
+          "label": "布局与规则",
+          "score": 85.0,
+          "weight": 8,
+          "detail": "利用率 5% · 出板 0 · 重号 0",
+          "issues": [
+            "板面利用率仅 5% (元件过于空旷, 易致绕线远)"
+          ]
+        }
+      ],
+      "fix_list": [
+        "[连通完整性] 4 条网络未连通(开路): VCC_3V3, SWDIO, XTAL_OUT, PA6",
+        "[电源地完整] 电源/地网未连通: VCC_3V3",
+        "[间距余量] 13 处间距不足(可制造但偏紧, 占走线 8%)",
+        "[布局与规则] 板面利用率仅 5% (元件过于空旷, 易致绕线远)"
+      ]
     }
   },
   "stm32g031_minimal": {
@@ -493,6 +1634,71 @@
       "vias": 38,
       "footprints": 15,
       "nets": 18
+    },
+    "quality": {
+      "board_name": "stm32g031_minimal",
+      "overall": 96.4,
+      "grade": "A",
+      "manufacturable": true,
+      "headline": "可直接投产: 无短路无开路, 各维度优良。",
+      "dimensions": [
+        {
+          "key": "connectivity",
+          "label": "连通完整性",
+          "score": 100.0,
+          "weight": 30,
+          "detail": "17/17 多脚网全连通",
+          "issues": []
+        },
+        {
+          "key": "shorts",
+          "label": "短路安全",
+          "score": 100.0,
+          "weight": 25,
+          "detail": "无任何硬短路",
+          "issues": []
+        },
+        {
+          "key": "clearance",
+          "label": "间距余量",
+          "score": 80.1,
+          "weight": 12,
+          "detail": "18 处间距不足 / 181 走线",
+          "issues": [
+            "18 处间距不足(可制造但偏紧, 占走线 10%)"
+          ]
+        },
+        {
+          "key": "dfm",
+          "label": "可制造性",
+          "score": 100.0,
+          "weight": 13,
+          "detail": "275/275 项符合 JLCPCB 工艺",
+          "issues": []
+        },
+        {
+          "key": "power",
+          "label": "电源地完整",
+          "score": 100.0,
+          "weight": 12,
+          "detail": "GND 覆盖 100% · 5 电容 / 2 IC",
+          "issues": []
+        },
+        {
+          "key": "placement",
+          "label": "布局与规则",
+          "score": 85.0,
+          "weight": 8,
+          "detail": "利用率 4% · 出板 0 · 重号 0",
+          "issues": [
+            "板面利用率仅 4% (元件过于空旷, 易致绕线远)"
+          ]
+        }
+      ],
+      "fix_list": [
+        "[间距余量] 18 处间距不足(可制造但偏紧, 占走线 10%)",
+        "[布局与规则] 板面利用率仅 4% (元件过于空旷, 易致绕线远)"
+      ]
     }
   },
   "stm32h743_core": {
@@ -512,6 +1718,71 @@
       "vias": 37,
       "footprints": 22,
       "nets": 16
+    },
+    "quality": {
+      "board_name": "stm32h743_core",
+      "overall": 98.7,
+      "grade": "A",
+      "manufacturable": true,
+      "headline": "可直接投产: 无短路无开路, 各维度优良。",
+      "dimensions": [
+        {
+          "key": "connectivity",
+          "label": "连通完整性",
+          "score": 100.0,
+          "weight": 30,
+          "detail": "15/15 多脚网全连通",
+          "issues": []
+        },
+        {
+          "key": "shorts",
+          "label": "短路安全",
+          "score": 100.0,
+          "weight": 25,
+          "detail": "无任何硬短路",
+          "issues": []
+        },
+        {
+          "key": "clearance",
+          "label": "间距余量",
+          "score": 99.2,
+          "weight": 12,
+          "detail": "1 处间距不足 / 236 走线",
+          "issues": [
+            "1 处间距不足(可制造但偏紧, 占走线 0%)"
+          ]
+        },
+        {
+          "key": "dfm",
+          "label": "可制造性",
+          "score": 100.0,
+          "weight": 13,
+          "detail": "328/328 项符合 JLCPCB 工艺",
+          "issues": []
+        },
+        {
+          "key": "power",
+          "label": "电源地完整",
+          "score": 100.0,
+          "weight": 12,
+          "detail": "GND 覆盖 100% · 12 电容 / 1 IC",
+          "issues": []
+        },
+        {
+          "key": "placement",
+          "label": "布局与规则",
+          "score": 85.0,
+          "weight": 8,
+          "detail": "利用率 5% · 出板 0 · 重号 0",
+          "issues": [
+            "板面利用率仅 5% (元件过于空旷, 易致绕线远)"
+          ]
+        }
+      ],
+      "fix_list": [
+        "[布局与规则] 板面利用率仅 5% (元件过于空旷, 易致绕线远)",
+        "[间距余量] 1 处间距不足(可制造但偏紧, 占走线 0%)"
+      ]
     }
   },
   "usb_c_pd_trigger": {
@@ -531,6 +1802,71 @@
       "vias": 19,
       "footprints": 13,
       "nets": 10
+    },
+    "quality": {
+      "board_name": "usb_c_pd_trigger",
+      "overall": 98.3,
+      "grade": "A",
+      "manufacturable": true,
+      "headline": "可直接投产: 无短路无开路, 各维度优良。",
+      "dimensions": [
+        {
+          "key": "connectivity",
+          "label": "连通完整性",
+          "score": 100.0,
+          "weight": 30,
+          "detail": "9/9 多脚网全连通",
+          "issues": []
+        },
+        {
+          "key": "shorts",
+          "label": "短路安全",
+          "score": 100.0,
+          "weight": 25,
+          "detail": "无任何硬短路",
+          "issues": []
+        },
+        {
+          "key": "clearance",
+          "label": "间距余量",
+          "score": 95.8,
+          "weight": 12,
+          "detail": "2 处间距不足 / 95 走线",
+          "issues": [
+            "2 处间距不足(可制造但偏紧, 占走线 2%)"
+          ]
+        },
+        {
+          "key": "dfm",
+          "label": "可制造性",
+          "score": 100.0,
+          "weight": 13,
+          "detail": "135/135 项符合 JLCPCB 工艺",
+          "issues": []
+        },
+        {
+          "key": "power",
+          "label": "电源地完整",
+          "score": 100.0,
+          "weight": 12,
+          "detail": "GND 覆盖 100% · 4 电容 / 2 IC",
+          "issues": []
+        },
+        {
+          "key": "placement",
+          "label": "布局与规则",
+          "score": 85.0,
+          "weight": 8,
+          "detail": "利用率 5% · 出板 0 · 重号 0",
+          "issues": [
+            "板面利用率仅 5% (元件过于空旷, 易致绕线远)"
+          ]
+        }
+      ],
+      "fix_list": [
+        "[布局与规则] 板面利用率仅 5% (元件过于空旷, 易致绕线远)",
+        "[间距余量] 2 处间距不足(可制造但偏紧, 占走线 2%)"
+      ]
     }
   },
   "w5500_ethernet": {
@@ -562,6 +1898,71 @@
       "vias": 26,
       "footprints": 14,
       "nets": 18
+    },
+    "quality": {
+      "board_name": "w5500_ethernet",
+      "overall": 40.9,
+      "grade": "F",
+      "manufacturable": false,
+      "headline": "不可制造: 5 条网络开路 (功能不全), 必须先布通。",
+      "dimensions": [
+        {
+          "key": "connectivity",
+          "label": "连通完整性",
+          "score": 70.6,
+          "weight": 30,
+          "detail": "12/17 多脚网全连通",
+          "issues": [
+            "5 条网络未连通(开路): SCLK, MOSI, MISO, SCSn, XTAL2"
+          ]
+        },
+        {
+          "key": "shorts",
+          "label": "短路安全",
+          "score": 100.0,
+          "weight": 25,
+          "detail": "无任何硬短路",
+          "issues": []
+        },
+        {
+          "key": "clearance",
+          "label": "间距余量",
+          "score": 93.9,
+          "weight": 12,
+          "detail": "4 处间距不足 / 131 走线",
+          "issues": [
+            "4 处间距不足(可制造但偏紧, 占走线 3%)"
+          ]
+        },
+        {
+          "key": "dfm",
+          "label": "可制造性",
+          "score": 100.0,
+          "weight": 13,
+          "detail": "205/205 项符合 JLCPCB 工艺",
+          "issues": []
+        },
+        {
+          "key": "power",
+          "label": "电源地完整",
+          "score": 100.0,
+          "weight": 12,
+          "detail": "GND 覆盖 100% · 8 电容 / 1 IC",
+          "issues": []
+        },
+        {
+          "key": "placement",
+          "label": "布局与规则",
+          "score": 100.0,
+          "weight": 8,
+          "detail": "利用率 10% · 出板 0 · 重号 0",
+          "issues": []
+        }
+      ],
+      "fix_list": [
+        "[连通完整性] 5 条网络未连通(开路): SCLK, MOSI, MISO, SCSn, XTAL2",
+        "[间距余量] 4 处间距不足(可制造但偏紧, 占走线 3%)"
+      ]
     }
   }
 }
