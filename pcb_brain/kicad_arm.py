@@ -948,23 +948,43 @@ class KiCadArm:
             for e in range(EDGE):
                 edge_cells.add((e, gy)); edge_cells.add((gw - 1 - e, gy))
 
-        # ── 预计算他网焊盘封锁区: soft(焊盘本体+间距) / hard(焊盘本体) ──
-        pad_soft: dict = {}
-        pad_hard: dict = {}
+        # ── 预计算他网焊盘封锁区 (按铜层): soft(焊盘体+间距) / hard(焊盘体) ──
+        # 通孔/双层焊盘 ('*') 同时封锁 F/B; SMD 只封锁自身层。
+        LF, LB = 0, 1  # 层索引: F.Cu / B.Cu
+        pad_soft = {LF: {}, LB: {}}
+        pad_hard = {LF: {}, LB: {}}
         for nidx, geom_list in pad_geom_by_net.items():
-            cs: set = set()
-            ch: set = set()
-            for cx_mm, cy_mm, hw, hh in geom_list:
-                cs |= pad_bbox_cells(cx_mm, cy_mm, hw, hh, CLR_SOFT)
-                ch |= pad_bbox_cells(cx_mm, cy_mm, hw, hh, CLR_HARD)
-            pad_soft[nidx] = frozenset(cs)
-            pad_hard[nidx] = frozenset(ch)
+            cs = {LF: set(), LB: set()}
+            ch = {LF: set(), LB: set()}
+            for cx_mm, cy_mm, hw, hh, plyr in geom_list:
+                soft = pad_bbox_cells(cx_mm, cy_mm, hw, hh, CLR_SOFT)
+                hard = pad_bbox_cells(cx_mm, cy_mm, hw, hh, CLR_HARD)
+                tgt = (LF, LB) if plyr == "*" else ((LB,) if plyr == "B" else (LF,))
+                for L in tgt:
+                    cs[L] |= soft
+                    ch[L] |= hard
+            for L in (LF, LB):
+                pad_soft[L][nidx] = frozenset(cs[L])
+                pad_hard[L][nidx] = frozenset(ch[L])
 
-        # ── 已路由占用格 (单层 F.Cu) ──
-        blocked: set = set(edge_cells)
-        edge_only = frozenset(edge_cells)
+        # 每个焊盘坐标可起步的层集合 (SMD 只能本层起步, 通孔两层皆可)
+        pad_layer_at: dict = {}
+        for geom_list in pad_geom_by_net.values():
+            for cx_mm, cy_mm, hw, hh, plyr in geom_list:
+                key = (round(cx_mm, 3), round(cy_mm, 3))
+                allowed = {LF, LB} if plyr == "*" else (
+                    {LB} if plyr == "B" else {LF})
+                pad_layer_at.setdefault(key, set()).update(allowed)
+
+        def layers_of(mm_pt) -> set:
+            return pad_layer_at.get((round(mm_pt[0], 3), round(mm_pt[1], 3)), {LF})
+
+        # ── 已路由占用格 (双层独立 + 过孔占双层) ──
+        blocked = {LF: set(edge_cells), LB: set(edge_cells)}
+        VIA_COST = 8  # 一个过孔 ≈ 8 格绕行的代价 (抑制过孔泛滥)
 
         segments: list = []
+        vias: list = []
         routed = unrouted = 0
 
         for net_idx, pad_list in sorted(pads_by_net.items()):
@@ -984,6 +1004,8 @@ class KiCadArm:
 
                 src_g = mm_to_grid(*best_src)
                 dst_g = mm_to_grid(*best_dst)
+                src_layers = layers_of(best_src)
+                dst_layers = layers_of(best_dst)
 
                 own_cells: set = {mm_to_grid(*p) for p in pad_list}
                 exempt: set = set(own_cells)
@@ -992,59 +1014,61 @@ class KiCadArm:
                         exempt.add((src_g[0]+ddx, src_g[1]+ddy))
                         exempt.add((dst_g[0]+ddx, dst_g[1]+ddy))
 
-                # 构建他网焊盘封锁 (soft/hard)
-                fpb_soft: set = set()
-                fpb_hard: set = set()
-                for nidx in pad_soft:
-                    if nidx != net_idx:
-                        fpb_soft |= pad_soft[nidx]
-                        fpb_hard |= pad_hard[nidx]
-                fpb_soft -= exempt
-                fpb_hard -= exempt
+                def build_obs(pad_block):
+                    obs = {}
+                    for L in (LF, LB):
+                        fpb = set()
+                        for nidx, cells in pad_block[L].items():
+                            if nidx != net_idx:
+                                fpb |= cells
+                        fpb -= exempt
+                        obs[L] = (blocked[L] | fpb) - own_cells
+                    return obs
 
-                # Level 1: soft封锁 + 已布线 (full clearance)
-                obs1 = blocked | fpb_soft
-                obs1 -= own_cells
-                path = self._bfs_route(src_g, dst_g, obs1, gw, gh)
-
-                # Level 2: 轨迹封锁+焊盘硬封锁 (放松间距但保持焊盘体不可穿越)
+                # Level 1: soft 封锁 (满间距) → 双层迷宫
+                obs = build_obs(pad_soft)
+                path = self._maze_route_2layer(
+                    src_g, dst_g, src_layers, dst_layers, obs, gw, gh, VIA_COST)
+                # Level 2: hard 封锁 (放松间距, 仍不穿焊盘体/异网走线)
                 if path is None:
-                    obs2 = (set(blocked) | (fpb_hard - exempt)) - own_cells
-                    path = self._bfs_route(src_g, dst_g, obs2, gw, gh)
-
-                # Level 3: 板边+他网焊盘硬封锁 (防短路优先)
-                if path is None:
-                    obs3 = set(edge_only) | (fpb_hard - exempt)
-                    path = self._bfs_route(src_g, dst_g, obs3, gw, gh)
+                    obs = build_obs(pad_hard)
+                    path = self._maze_route_2layer(
+                        src_g, dst_g, src_layers, dst_layers, obs, gw, gh, VIA_COST)
                     if path:
-                        log.warning(f"  净{net_idx}: ⚠️ Level3降级布线(可能产生clearance违规)")
-                # Level 4: 绝对保底 — 仅板边 (0未连接必保)
-                if path is None:
-                    path = self._bfs_route(src_g, dst_g, set(edge_only), gw, gh)
-                    if path:
-                        log.warning(f"  净{net_idx}: ❗ Level4最终保底(可能短路)")
+                        log.warning(f"  净{net_idx}: ⚠️ Level2降级(可能 clearance 紧)")
 
                 if path:
-                    segs = self._path_to_segments(
+                    segs, vlist = self._layered_path_to_segments(
                         path, net_idx, GRID, x0 - EDGE * GRID, y0 - EDGE * GRID,
-                        start_mm=best_src, end_mm=best_dst
-                    )
+                        start_mm=best_src, end_mm=best_dst)
                     segments.extend(segs)
-                    for cell in path:
-                        blocked.add(cell)
+                    vias.extend(vlist)
+                    for gx, gy, L in path:
+                        blocked[L].add((gx, gy))
+                    # 过孔占双层
+                    for v in vlist:
+                        vg = (v["_gx"], v["_gy"])
+                        blocked[LF].add(vg)
+                        blocked[LB].add(vg)
                     routed += 1
-                    log.info(f"  净{net_idx}: ✅ {best_src}→{best_dst}, {len(segs)}段")
+                    log.info(f"  净{net_idx}: ✅ {best_src}→{best_dst}, "
+                             f"{len(segs)}段 {len(vlist)}过孔")
                 else:
-                    log.warning(f"  净{net_idx}: ❌ {best_src}→{best_dst} 路径受阻")
+                    log.warning(f"  净{net_idx}: ❌ {best_src}→{best_dst} 双层均受阻(诚实留开路)")
                     unrouted += 1
 
                 connected_mm.append(best_dst)
                 remaining_mm.remove(best_dst)
 
+        for v in vias:
+            v.pop("_gx", None)
+            v.pop("_gy", None)
         if segments:
-            self._append_segments_to_pcb(pcb_path, segments)
-        log.info(f"✅ 自动布线完成: ✅{routed}通 / ❌{unrouted}失败 / {len(segments)}段写入")
-        return {"routed": routed, "unrouted": unrouted, "segments": len(segments)}
+            self._append_segments_to_pcb(pcb_path, segments, vias)
+        log.info(f"✅ 双层自动布线完成: ✅{routed}通 / ❌{unrouted}失败 / "
+                 f"{len(segments)}段 / {len(vias)}过孔")
+        return {"routed": routed, "unrouted": unrouted,
+                "segments": len(segments), "vias": len(vias)}
 
     def _pcb_board_bounds(self, text: str):
         """从 Edge.Cuts gr_rect 提取板框 (x0,y0,x1,y1)，单位mm"""
@@ -1067,9 +1091,10 @@ class KiCadArm:
         """
         增强型焊盘解析器 — 同时提取中心坐标和物理尺寸。
         Returns:
-          pads_by_net:     {net_idx: [(cx, cy), ...]}          路由树用
-          pad_geom_by_net: {net_idx: [(cx, cy, hw, hh), ...]}  精确封锁用
+          pads_by_net:     {net_idx: [(cx, cy), ...]}              路由树用
+          pad_geom_by_net: {net_idx: [(cx, cy, hw, hh, lyr), ...]}  精确封锁用
           hw/hh = 半宽/半高 (mm, 保守取最大边)
+          lyr   = 'F' | 'B' | '*'  焊盘所在铜层 ('*' = 通孔, 占双层)
         """
         pads_by_net: dict = {}
         pad_geom_by_net: dict = {}
@@ -1113,11 +1138,19 @@ class KiCadArm:
 
                 pat_m  = re.search(r'\(at\s+(-?[\d.]+)\s+(-?[\d.]+)', pad_text)
                 size_m = re.search(r'\(size\s+([\d.]+)\s+([\d.]+)\)',   pad_text)
+                lyr_m  = re.search(r'\(layers\s+([^)]*)\)', pad_text)
                 if pat_m:
                     pad_abs_x = fp_x + float(pat_m.group(1))
                     pad_abs_y = fp_y + float(pat_m.group(2))
                     hw = float(size_m.group(1)) / 2.0 if size_m else 0.5
                     hh = float(size_m.group(2)) / 2.0 if size_m else 0.5
+                    lyr_txt = lyr_m.group(1) if lyr_m else '"F.Cu"'
+                    if "*.Cu" in lyr_txt or ("F.Cu" in lyr_txt and "B.Cu" in lyr_txt):
+                        lyr = "*"
+                    elif "B.Cu" in lyr_txt and "F.Cu" not in lyr_txt:
+                        lyr = "B"
+                    else:
+                        lyr = "F"
                     net_m = re.search(r'\(net\s+(\d+)', pad_text)
                     if net_m:
                         net_idx = int(net_m.group(1))
@@ -1126,7 +1159,7 @@ class KiCadArm:
                             pads_by_net[net_idx].append((pad_abs_x, pad_abs_y))
                             pad_geom_by_net.setdefault(net_idx, [])
                             pad_geom_by_net[net_idx].append(
-                                (pad_abs_x, pad_abs_y, hw, hh))
+                                (pad_abs_x, pad_abs_y, hw, hh, lyr))
                 pi = pj
             i = j
         return pads_by_net, pad_geom_by_net
@@ -1156,6 +1189,98 @@ class KiCadArm:
                     return list(reversed(path))
                 q.append((nx, ny))
         return None
+
+    def _maze_route_2layer(self, src: tuple, dst: tuple,
+                           src_layers: set, dst_layers: set,
+                           obs: dict, gw: int, gh: int, via_cost: int):
+        """双层 (F.Cu=0 / B.Cu=1) 迷宫布线 — 统一代价搜索 (Dijkstra).
+
+        状态 = (gx, gy, layer). 平面相邻移动代价 1; 同坐标换层 (过孔) 代价
+        via_cost, 仅当目标层该格空闲. 返回 [(gx,gy,layer), ...] 或 None.
+        不同 net 走线落在不同层即不短路 —— 这是真实 PCB 用 ≥2 层消除交叉的根本机制.
+        """
+        import heapq
+        starts = [(src[0], src[1], L) for L in src_layers
+                  if (src[0], src[1]) not in obs[L]]
+        if not starts:
+            # 起点被占 (焊盘豁免已在调用方处理), 仍尝试从允许层强行起步
+            starts = [(src[0], src[1], L) for L in src_layers]
+        goals = {(dst[0], dst[1], L) for L in dst_layers}
+        dist: dict = {}
+        parent: dict = {}
+        pq = []
+        for s in starts:
+            dist[s] = 0
+            parent[s] = None
+            heapq.heappush(pq, (0, s))
+        while pq:
+            d, (x, y, L) = heapq.heappop(pq)
+            if d > dist.get((x, y, L), 1e18):
+                continue
+            if (x, y, L) in goals:
+                path = []
+                cur = (x, y, L)
+                while cur is not None:
+                    path.append(cur)
+                    cur = parent[cur]
+                return list(reversed(path))
+            # 平面移动
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nx, ny = x + dx, y + dy
+                if not (0 <= nx < gw and 0 <= ny < gh):
+                    continue
+                if (nx, ny) in obs[L]:
+                    continue
+                ns = (nx, ny, L)
+                nd = d + 1
+                if nd < dist.get(ns, 1e18):
+                    dist[ns] = nd
+                    parent[ns] = (x, y, L)
+                    heapq.heappush(pq, (nd, ns))
+            # 换层 (过孔)
+            oL = 1 - L
+            if (x, y) not in obs[oL]:
+                ns = (x, y, oL)
+                nd = d + via_cost
+                if nd < dist.get(ns, 1e18):
+                    dist[ns] = nd
+                    parent[ns] = (x, y, L)
+                    heapq.heappush(pq, (nd, ns))
+        return None
+
+    def _layered_path_to_segments(self, path: list, net_idx: int,
+                                  grid_mm: float, x0: float, y0: float,
+                                  start_mm=None, end_mm=None):
+        """分层路径 [(gx,gy,L)] → (segments, vias). 换层处插入过孔."""
+        _LAYER = {0: "F.Cu", 1: "B.Cu"}
+        segs: list = []
+        vias: list = []
+        # 切成同层连续子段
+        runs: list = []
+        run = [path[0]]
+        for node in path[1:]:
+            if node[2] == run[-1][2]:
+                run.append(node)
+            else:
+                runs.append(run)
+                # 换层点 = 上一子段末格 (与新子段首格同坐标)
+                gx, gy = run[-1][0], run[-1][1]
+                vx = x0 + gx * grid_mm
+                vy = y0 + gy * grid_mm
+                vias.append({"x": vx, "y": vy, "net": net_idx,
+                             "_gx": gx, "_gy": gy})
+                run = [node]
+        runs.append(run)
+
+        for ri, run in enumerate(runs):
+            lyr = _LAYER.get(run[0][2], "F.Cu")
+            pts2d = [(g[0], g[1]) for g in run]
+            s_mm = start_mm if ri == 0 else None
+            e_mm = end_mm if ri == len(runs) - 1 else None
+            segs.extend(self._path_to_segments(
+                pts2d, net_idx, grid_mm, x0, y0,
+                start_mm=s_mm, end_mm=e_mm, layer=lyr))
+        return segs, vias
 
     def _path_to_segments(self, path: list, net_idx: int,
                           grid_mm: float, x0: float, y0: float,
