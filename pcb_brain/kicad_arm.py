@@ -914,11 +914,23 @@ class KiCadArm:
         board_area = max((x1 - x0) * (y1 - y0), 1.0)
         n_pads = sum(len(v) for v in pads_by_net.values())
         density = n_pads / board_area
-        GRID  = 0.25 if density > 0.02 else 0.5
+        GRID  = 0.2 if density > 0.02 else 0.25
         EDGE  = 4
         CLR_SOFT  = 0.2    # mm — Level1: 焊盘+间距封锁 (KiCad默认0.2mm间距)
         CLR_HARD  = 0.0    # mm — Level3: 仅焊盘本体 (紧急降级)
         log.info(f"  密度={density:.3f}pad/mm2 GRID={GRID}mm CLR={CLR_SOFT}mm")
+        # ── 走线/过孔 间距 halo ──
+        # 道法自然: 栅格本身不含间距, 仅封锁"已布线铜箔"本体, 异网遂可挤进相邻格
+        # (中心距=GRID<线宽+间距) → R007 短路/间距 与 R006 过孔间距 必然违规。
+        # 解: 对已布线铜箔按 (线宽+间距) 膨胀一圈 halo, 使异网走线天然保持足够中心距。
+        import math as _math
+        TRACE_W = 0.25     # mm — 与 _append_segments_to_pcb 写入 width 一致
+        VIA_DIA = 0.8      # mm — 与写入 via size 一致
+        _min_pitch = TRACE_W + CLR_SOFT                    # 异网走线中心最小间距
+        TRACE_HALO = max(0, _math.ceil(_min_pitch / GRID) - 1)
+        _via_pitch = VIA_DIA / 2 + CLR_SOFT + TRACE_W / 2  # 过孔↔走线中心最小间距
+        VIA_HALO   = max(TRACE_HALO, _math.ceil(_via_pitch / GRID) - 1)
+        log.info(f"  间距halo: trace={TRACE_HALO}格 via={VIA_HALO}格")
         gw = max(8, int((x1 - x0) / GRID) + EDGE * 2 + 1)
         gh = max(8, int((y1 - y0) / GRID) + EDGE * 2 + 1)
         log.info(f"  路由格: {gw}×{gh} (分辨率{GRID}mm), 网络数:{len(pads_by_net)}")
@@ -979,15 +991,32 @@ class KiCadArm:
         def layers_of(mm_pt) -> set:
             return pad_layer_at.get((round(mm_pt[0], 3), round(mm_pt[1], 3)), {LF})
 
-        # ── 已路由占用格 (双层独立 + 过孔占双层) ──
-        blocked = {LF: set(edge_cells), LB: set(edge_cells)}
+        # ── 已路由占用 (按 net 分桶, 双层独立; 过孔占双层) ──
+        #    trace_body: 走线实际占格; trace_halo: 走线+间距膨胀 (供异网避让)。
+        trace_body = {LF: {}, LB: {}}   # net -> set(cells)
+        trace_halo = {LF: {}, LB: {}}   # net -> frozenset(cells, 已膨胀 TRACE_HALO)
+        via_body: dict = {}             # net -> set(cells)  (占双层)
+        via_halo: dict = {}             # net -> frozenset(cells, 已膨胀 VIA_HALO)
         VIA_COST = 8  # 一个过孔 ≈ 8 格绕行的代价 (抑制过孔泛滥)
+
+        def expand_halo(cells, r):
+            if r <= 0:
+                return set(cells)
+            out: set = set()
+            for gx, gy in cells:
+                for dx in range(-r, r + 1):
+                    for dy in range(-r, r + 1):
+                        out.add((gx + dx, gy + dy))
+            return out
 
         segments: list = []
         vias: list = []
         routed = unrouted = 0
 
-        for net_idx, pad_list in sorted(pads_by_net.items()):
+        # 路由顺序: 焊盘多(最受约束)的网先布, 趁板面空闲抢到通路;
+        #           简单 2 脚网最后填缝 → 整体开路最少 (无 rip-up 下的最优近似)。
+        for net_idx, pad_list in sorted(
+                pads_by_net.items(), key=lambda kv: -len(kv[1])):
             if len(pad_list) < 2:
                 continue
             connected_mm = [pad_list[0]]
@@ -1014,24 +1043,45 @@ class KiCadArm:
                         exempt.add((src_g[0]+ddx, src_g[1]+ddy))
                         exempt.add((dst_g[0]+ddx, dst_g[1]+ddy))
 
-                def build_obs(pad_block):
+                def build_obs(relax_ring: bool):
                     obs = {}
                     for L in (LF, LB):
-                        fpb = set()
-                        for nidx, cells in pad_block[L].items():
+                        o = set(edge_cells)
+                        # 异网走线 (含间距 halo): 从根上保证 clearance
+                        for onet, cells in trace_halo[L].items():
+                            if onet != net_idx:
+                                o |= cells
+                        # 本网已布线本体: 仅防重复占格 (同网无需间距)
+                        o |= trace_body[L].get(net_idx, set())
+                        # 过孔 (占双层): 异网含 halo, 本网仅本体
+                        for onet, cells in via_halo.items():
+                            if onet != net_idx:
+                                o |= cells
+                        o |= via_body.get(net_idx, set())
+                        # 异网焊盘: 本体(hard)永不豁免 (走线绝不压在异网焊盘铜上=硬短路);
+                        #          仅 clearance 外环可在端点附近豁免 (供紧间距逃逸)。
+                        body = set()
+                        for nidx, cells in pad_hard[L].items():
                             if nidx != net_idx:
-                                fpb |= cells
-                        fpb -= exempt
-                        obs[L] = (blocked[L] | fpb) - own_cells
+                                body |= cells
+                        o |= body
+                        if not relax_ring:
+                            ring = set()
+                            for nidx, cells in pad_soft[L].items():
+                                if nidx != net_idx:
+                                    ring |= cells
+                            ring -= body
+                            o |= (ring - exempt)
+                        obs[L] = o - own_cells
                     return obs
 
-                # Level 1: soft 封锁 (满间距) → 双层迷宫
-                obs = build_obs(pad_soft)
+                # Level 1: 满 clearance 外环 (端点附近可穿环) → 双层迷宫
+                obs = build_obs(relax_ring=False)
                 path = self._maze_route_2layer(
                     src_g, dst_g, src_layers, dst_layers, obs, gw, gh, VIA_COST)
-                # Level 2: hard 封锁 (放松间距, 仍不穿焊盘体/异网走线)
+                # Level 2: 丢 clearance 外环 (仍不穿焊盘体/异网走线) → 紧间距降级
                 if path is None:
-                    obs = build_obs(pad_hard)
+                    obs = build_obs(relax_ring=True)
                     path = self._maze_route_2layer(
                         src_g, dst_g, src_layers, dst_layers, obs, gw, gh, VIA_COST)
                     if path:
@@ -1044,12 +1094,18 @@ class KiCadArm:
                     segments.extend(segs)
                     vias.extend(vlist)
                     for gx, gy, L in path:
-                        blocked[L].add((gx, gy))
+                        trace_body[L].setdefault(net_idx, set()).add((gx, gy))
+                    for L in (LF, LB):
+                        if net_idx in trace_body[L]:
+                            trace_halo[L][net_idx] = frozenset(
+                                expand_halo(trace_body[L][net_idx], TRACE_HALO))
                     # 过孔占双层
                     for v in vlist:
                         vg = (v["_gx"], v["_gy"])
-                        blocked[LF].add(vg)
-                        blocked[LB].add(vg)
+                        via_body.setdefault(net_idx, set()).add(vg)
+                    if net_idx in via_body:
+                        via_halo[net_idx] = frozenset(
+                            expand_halo(via_body[net_idx], VIA_HALO))
                     routed += 1
                     log.info(f"  净{net_idx}: ✅ {best_src}→{best_dst}, "
                              f"{len(segs)}段 {len(vlist)}过孔")
