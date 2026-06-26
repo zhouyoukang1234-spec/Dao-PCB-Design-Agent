@@ -138,6 +138,70 @@ class PCB:
             log.error(f"design failed: {e}")
             return {"status": "error", "error": str(e)}
 
+    @staticmethod
+    def design_spec(spec: Any, output_dir: str = "",
+                    do_layout: bool = True,
+                    prefer_freerouting: bool = False) -> Dict[str, Any]:
+        """通用设计入口 — 任意 spec/网表 → PCB, 不依赖 21 模板注册表。
+
+        spec 可为:
+          * dict        — 结构化规格 (见 pcb_spec.dna_from_spec)
+          * .json/.yaml — 结构化规格文件
+          * .net        — 标准 KiCad 网表 (任意原理图工具可导出)
+          * DNA 对象    — 直接给定
+
+        返回与 PCB.design 同构: {"status","name","pcb_path","routing","drc"}。
+        这是 "模板退化为种子" 的本源接口: 引擎吃它从没见过的设计。
+        """
+        from circuit_dna import DNA, auto_layout as layout_fn
+        from kicad_arm import KiCadArm
+        import pcb_spec
+
+        try:
+            if isinstance(spec, DNA):
+                dna = spec
+            elif isinstance(spec, dict):
+                dna = pcb_spec.dna_from_spec(spec)
+            else:
+                p = Path(str(spec))
+                suf = p.suffix.lower()
+                if suf == ".json":
+                    dna = pcb_spec.dna_from_json(p)
+                elif suf in (".yaml", ".yml"):
+                    dna = pcb_spec.dna_from_yaml(p)
+                elif suf in (".net", ".xml"):
+                    dna = pcb_spec.dna_from_kicad_netlist(p)
+                else:
+                    return {"status": "error", "error": f"无法识别的 spec 类型: {spec!r}"}
+        except Exception as e:
+            log.error(f"spec 解析失败: {e}")
+            return {"status": "error", "error": f"spec 解析失败: {e}"}
+
+        dna = copy.deepcopy(dna)
+        if do_layout:
+            layout_fn(dna)
+
+        out = Path(output_dir) if output_dir else B.ensure_output_dir(dna.name)
+        arm = KiCadArm()
+        try:
+            pcb_path = str(out / f"{dna.name}.kicad_pcb")
+            if not arm.create_pcb_from_dna(dna, pcb_path):
+                return {"status": "error", "error": "create_pcb_from_dna 返回 False"}
+            route_result = arm.auto_route(pcb_path, prefer_freerouting=prefer_freerouting)
+            drc_result = arm.run_drc(pcb_path)
+            return {
+                "status": "ok",
+                "name": dna.name,
+                "pcb_path": pcb_path,
+                "components": len(dna.components),
+                "nets": len(dna.nets),
+                "routing": route_result,
+                "drc": drc_result,
+            }
+        except Exception as e:
+            log.error(f"design_spec failed: {e}")
+            return {"status": "error", "error": str(e)}
+
     # ── DRC检查 ───────────────────────────────────────────
 
     @staticmethod
