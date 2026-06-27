@@ -126,7 +126,7 @@ def main() -> int:
         engine = DRCEngine(board)
         report = engine.run()
         check("DRC run (empty board)", report.passed)
-        check("DRC 6 rules", len(report.rules_run) == 6, f"rules={report.rules_run}")
+        check("DRC 9 rules", len(report.rules_run) == 9, f"rules={report.rules_run}")
     except Exception as e:
         check("DRC", False, str(e))
 
@@ -214,12 +214,61 @@ def main() -> int:
     except Exception as e:
         check("DNA pipeline", False, str(e))
 
-    # ── MCP (16 tools) ───────────────────────────────────────────
-    print("\n── MCP Server (16 tools) ──")
+    # ── Engine extensions ────────────────────────────────────────
+    print("\n── Engine Extensions (Specctra/Netlist/SVG) ──")
+    try:
+        from kicad_origin.engine.specctra import generate_dsn, DSNResult
+        check("Specctra import", True)
+        dna = CircuitDNA.get("ams1117_power")
+        board = dna_to_board(dna)
+        r = generate_dsn(board, "output/verify/test.dsn", project_name="test")
+        check("DSN generation", r.ok, f"fps={r.stats.get('footprints', 0)}")
+    except Exception as e:
+        check("Specctra", False, str(e))
+
+    try:
+        from kicad_origin.engine.netlist import export_kicad_netlist, board_to_netlist
+        check("Netlist import", True)
+        nl = board_to_netlist(board)
+        check("Netlist extraction", len(nl.components) > 0, f"comps={len(nl.components)}")
+        r2 = export_kicad_netlist(board, "output/verify/test.net")
+        check("Netlist export", r2.get("ok", False))
+    except Exception as e:
+        check("Netlist", False, str(e))
+
+    try:
+        from kicad_origin.engine.visualize import save_board_svg
+        check("SVG import", True)
+        r3 = save_board_svg(board, "output/verify/test.svg")
+        check("SVG generation", r3.get("ok", False), f"size={r3.get('size', 0)}")
+    except Exception as e:
+        check("SVG", False, str(e))
+
+    # ── Full pipeline (all 7 outputs) ────────────────────────────
+    print("\n── Full Pipeline (7 outputs per template) ──")
+    try:
+        from kicad_origin.engine.gerber import generate_gerber
+        from kicad_origin.engine.bom import generate_bom
+        test_dna = CircuitDNA.get("power_supply_complete")
+        test_board = dna_to_board(test_dna)
+        drc_ok = DRCEngine(test_board).run().passed
+        gerber_ok = generate_gerber(test_board, "output/verify/gerber", project_name="test").ok
+        bom_ok = generate_bom(test_board).ok
+        dsn_ok = generate_dsn(test_board, "output/verify/psc.dsn", project_name="psc").ok
+        net_ok = export_kicad_netlist(test_board, "output/verify/psc.net").get("ok", False)
+        svg_ok = save_board_svg(test_board, "output/verify/psc.svg").get("ok", False)
+        all_ok = drc_ok and gerber_ok and bom_ok and dsn_ok and net_ok and svg_ok
+        check("7-output pipeline", all_ok,
+              f"DRC={drc_ok} Gerber={gerber_ok} BOM={bom_ok} DSN={dsn_ok} Net={net_ok} SVG={svg_ok}")
+    except Exception as e:
+        check("Full pipeline", False, str(e))
+
+    # ── MCP (20 tools) ───────────────────────────────────────────
+    print("\n── MCP Server (20 tools) ──")
     try:
         from kicad_origin.pcb_mcp import TOOL_REGISTRY, self_test
         check("MCP import", True)
-        check("MCP 16 tools", len(TOOL_REGISTRY) == 16, f"count={len(TOOL_REGISTRY)}")
+        check("MCP 20 tools", len(TOOL_REGISTRY) == 20, f"count={len(TOOL_REGISTRY)}")
         r = self_test()
         check("MCP self_test", r["failed"] == 0,
               f"passed={r['passed']}/{r['total']}")

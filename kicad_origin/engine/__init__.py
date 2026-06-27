@@ -1,12 +1,16 @@
-"""engine — DRC/Gerber/BOM/Specctra (Layer 3)"""
+"""engine — DRC/Gerber/BOM/Specctra/Netlist/Visualize (Layer 3)"""
 from kicad_origin.engine.drc import DRCEngine, DRCReport, DRCViolation
 from kicad_origin.engine.gerber import generate_gerber, GerberResult
 from kicad_origin.engine.bom import generate_bom, save_bom, bom_to_csv, BOMResult
 from kicad_origin.engine.specctra import generate_dsn, run_freerouting, DSNResult
+from kicad_origin.engine.netlist import board_to_netlist, export_kicad_netlist, Netlist
+from kicad_origin.engine.visualize import board_to_svg, save_board_svg
 
 __all__ = [
     "DRCEngine", "DRCReport", "DRCViolation",
     "generate_gerber", "GerberResult",
     "generate_bom", "save_bom", "bom_to_csv", "BOMResult",
     "generate_dsn", "run_freerouting", "DSNResult",
+    "board_to_netlist", "export_kicad_netlist", "Netlist",
+    "board_to_svg", "save_board_svg",
 ]

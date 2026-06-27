@@ -156,31 +156,75 @@ def tool_solve_drc(max_iters: int = 16) -> Dict[str, Any]:
     return report.to_dict()
 
 
+def tool_export_netlist(output_path: str = "output/netlist.net") -> Dict[str, Any]:
+    """Export the current board as a KiCad netlist (.net)."""
+    dao = _get_dao()
+    if dao._board is None:
+        return {"ok": False, "error": "No board loaded"}
+    from kicad_origin.engine.netlist import export_kicad_netlist
+    return export_kicad_netlist(dao._board, output_path)
+
+
+def tool_export_svg(output_path: str = "output/board.svg") -> Dict[str, Any]:
+    """Export the current board as SVG visualization."""
+    dao = _get_dao()
+    if dao._board is None:
+        return {"ok": False, "error": "No board loaded"}
+    from kicad_origin.engine.visualize import save_board_svg
+    return save_board_svg(dao._board, output_path)
+
+
+def tool_export_dsn(output_path: str = "output/board.dsn",
+                     project_name: str = "board") -> Dict[str, Any]:
+    """Export the current board as Specctra DSN for Freerouting."""
+    dao = _get_dao()
+    if dao._board is None:
+        return {"ok": False, "error": "No board loaded"}
+    from kicad_origin.engine.specctra import generate_dsn
+    r = generate_dsn(dao._board, output_path, project_name=project_name)
+    return r.to_dict()
+
+
+def tool_optimize_placement(spacing_mm: float = 2.0) -> Dict[str, Any]:
+    """Optimize footprint placement using greedy grid algorithm."""
+    dao = _get_dao()
+    if dao._board is None:
+        return {"ok": False, "error": "No board loaded"}
+    from kicad_origin.agent import PcbAgent
+    agent = PcbAgent(dao)
+    report = agent.optimize_placement(spacing_mm=spacing_mm)
+    return report.to_dict()
+
+
 # ═══════════════════════════════════════════════════════════════
-# Tool registry
+# Tool registry (20 tools)
 # ═══════════════════════════════════════════════════════════════
 TOOL_REGISTRY = {
-    "open_board":        tool_open_board,
-    "save_board":        tool_save_board,
-    "list_footprints":   tool_list_footprints,
-    "list_nets":         tool_list_nets,
-    "get_footprint":     tool_get_footprint,
-    "move_footprint":    tool_move_footprint,
-    "rotate_footprint":  tool_rotate_footprint,
-    "set_value":         tool_set_value,
-    "remove_footprint":  tool_remove_footprint,
-    "run_drc":           tool_run_drc,
-    "board_summary":     tool_board_summary,
-    "generate_pcb":      tool_generate_pcb,
-    "list_dna_templates": tool_list_dna_templates,
-    "generate_gerber":   tool_generate_gerber,
-    "generate_bom":      tool_generate_bom,
-    "solve_drc":         tool_solve_drc,
+    "open_board":          tool_open_board,
+    "save_board":          tool_save_board,
+    "list_footprints":     tool_list_footprints,
+    "list_nets":           tool_list_nets,
+    "get_footprint":       tool_get_footprint,
+    "move_footprint":      tool_move_footprint,
+    "rotate_footprint":    tool_rotate_footprint,
+    "set_value":           tool_set_value,
+    "remove_footprint":    tool_remove_footprint,
+    "run_drc":             tool_run_drc,
+    "board_summary":       tool_board_summary,
+    "generate_pcb":        tool_generate_pcb,
+    "list_dna_templates":  tool_list_dna_templates,
+    "generate_gerber":     tool_generate_gerber,
+    "generate_bom":        tool_generate_bom,
+    "solve_drc":           tool_solve_drc,
+    "export_netlist":      tool_export_netlist,
+    "export_svg":          tool_export_svg,
+    "export_dsn":          tool_export_dsn,
+    "optimize_placement":  tool_optimize_placement,
 }
 
 
 def self_test() -> Dict[str, Any]:
-    """Run self-test on all 16 tools."""
+    """Run self-test on all 20 tools."""
     results = {}
     passed = 0
 
@@ -261,6 +305,29 @@ def self_test() -> Dict[str, Any]:
         if ok: passed += 1
     except Exception as e:
         results["solve_drc"] = {"ok": False, "error": str(e)}
+
+    # Test new export tools
+    for name, args in [
+        ("export_netlist", ("output/mcp_test/netlist.net",)),
+        ("export_svg", ("output/mcp_test/board.svg",)),
+        ("export_dsn", ("output/mcp_test/board.dsn",)),
+    ]:
+        try:
+            r = TOOL_REGISTRY[name](*args)
+            ok = r.get("ok", False) if isinstance(r, dict) else False
+            results[name] = {"ok": ok}
+            if ok: passed += 1
+        except Exception as e:
+            results[name] = {"ok": False, "error": str(e)}
+
+    # Test optimize_placement
+    try:
+        r = tool_optimize_placement(spacing_mm=3.0)
+        ok = isinstance(r, dict)
+        results["optimize_placement"] = {"ok": ok}
+        if ok: passed += 1
+    except Exception as e:
+        results["optimize_placement"] = {"ok": False, "error": str(e)}
 
     # Test save and remove
     try:

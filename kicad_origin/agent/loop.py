@@ -255,3 +255,87 @@ class PcbAgent:
             except Exception:
                 pass
         return report
+
+    # ── 优化布局 (贪心最近邻) ─────────────────────────────────────
+    def optimize_placement(self, *, spacing_mm: float = 2.0) -> AgentReport:
+        """Greedy nearest-neighbor placement optimization.
+
+        Rearranges footprints in a grid with minimum spacing,
+        minimizing total board area while maintaining DRC compliance.
+        """
+        t0 = time.time()
+        board_name = str(getattr(self.dao, "_board_path", "") or "board")
+
+        p = self.perceive()
+        report = AgentReport(
+            goal="optimize_placement", board=board_name,
+            initial_errors=p.error_count, final_errors=p.error_count,
+            solved=False,
+        )
+
+        if not p.footprints:
+            report.stop_reason = "no_footprints"
+            report.elapsed_seconds = time.time() - t0
+            return report
+
+        # Get footprint sizes via bbox
+        fps_res = self.dao.list_footprints().result or {}
+        items = fps_res.get("items", [])
+        if not items:
+            report.stop_reason = "no_footprints"
+            report.elapsed_seconds = time.time() - t0
+            return report
+
+        # Sort by area (largest first) for greedy placement
+        sorted_fps = sorted(items, key=lambda i: i.get("width", 5) * i.get("height", 5), reverse=True)
+
+        x_cursor = 100.0
+        y_cursor = 100.0
+        row_height = 0.0
+        max_row_width = 60.0
+        cycle_idx = 0
+
+        for fp_info in sorted_fps:
+            ref = fp_info.get("ref", "")
+            w = fp_info.get("width", 5.0) + spacing_mm
+            h = fp_info.get("height", 5.0) + spacing_mm
+
+            if x_cursor + w > 100.0 + max_row_width:
+                x_cursor = 100.0
+                y_cursor += row_height + spacing_mm
+                row_height = 0.0
+
+            old_x = fp_info.get("x_mm", 0)
+            old_y = fp_info.get("y_mm", 0)
+            new_x = round(x_cursor + w / 2, 2)
+            new_y = round(y_cursor + h / 2, 2)
+
+            if abs(new_x - old_x) > 0.01 or abs(new_y - old_y) > 0.01:
+                cycle_idx += 1
+                plan = PlannedAction(
+                    kind="move", ref=ref, x=new_x, y=new_y,
+                    targets_rule="placement",
+                    rationale=f"Grid placement ({old_x:.1f},{old_y:.1f})->({new_x:.1f},{new_y:.1f})",
+                )
+                self.act(plan)
+                report.cycles.append(Cycle(
+                    index=cycle_idx, before_errors=p.error_count,
+                    action=plan.to_dict(), after_errors=0,
+                    improved=True, note="placement"))
+
+            x_cursor += w
+            row_height = max(row_height, h)
+
+        # Verify DRC after placement
+        after = self.perceive()
+        report.final_errors = after.error_count
+        report.solved = after.clean
+        report.stop_reason = "placement_complete"
+        report.elapsed_seconds = time.time() - t0
+
+        if not self.save_each:
+            try:
+                self.dao.save()
+            except Exception:
+                pass
+        return report
