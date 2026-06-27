@@ -92,6 +92,15 @@
 - 焊盘/引脚的 `net` 字段经 `getAll`/`getAllPinsByPrimitiveId` 取到的常为空,且 `pcb_Net.getAllNets` 偶发返回 `[]`(PCB 网络态需 `startCalculatingRatline` 且依赖 PCB doc 完全激活)→ 网络-焊盘映射不稳定,布线坐标宜直接取自 `pcb_PrimitiveComponent` 焊盘坐标。
 - **自动布线是文件式**:`pcb_ManufactureData.getDsnFile`/`getAutoRouteJsonFile` 导出 → 外部布线器(Freerouting/JRouter)→ `pcb_Document.importAutoRouteSesFile`/`importAutoRouteJsonFile` 回灌。
 
+### 网络稳态的关键开关 + 连线吸附边界(已实测)
+
+- **`pcb_Document.startCalculatingRatline` 是网络查询稳态的开关**:调用并等 `getCalculatingRatlineStatus=='active'` 后,
+  `pcb_Net.getAllNets` 才稳定返回(含 `length` 等几何);否则偶发空。已封装 `Flow.prepare_pcb_nets`。
+- `pcb_PrimitiveComponent.modify(id, {layer,x,y,rotation,primitiveLock})` 可移动/翻面器件(layer=1 顶,翻面用它)。
+- **连线→PCB 网络传播依赖引脚端点精确吸附**:实测 R.pin2↔C.pin1 连成了 N_RC,但 C.pin2↔LED 的 N_CL
+  在 PCB 端电容焊盘 `net` 仍为空 → 该段连线没真正吸附到电容引脚电气点。
+  **下一步要做引脚端点校验/吸附**(连完用 `getNetlist.components` 核对每个器件引脚都挂到预期网络)。
+
 ## 八、下一步(持续演化·不设终点)
 
 1. **网络-焊盘稳态**:摸清 `startCalculatingRatline` + PCB 激活时序,让 `pcb_Net` 查询稳定,实现"按 ratline 自动逐网布线"。
