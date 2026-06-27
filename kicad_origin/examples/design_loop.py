@@ -29,6 +29,7 @@ from kicad_origin.pcb.board import Board
 from kicad_origin.pcb.netbind import bind_netlist
 from kicad_origin.pcb.route_maze import route_ratsnest_maze
 from kicad_origin.pcb.route_maze2 import route_ratsnest_maze2
+from kicad_origin.pcb.placement import spread_placement
 
 REPO = Path(__file__).resolve().parents[2]
 KCLI_CANDIDATES = [
@@ -61,7 +62,8 @@ def real_drc(kcli: str, board_path: Path) -> dict:
     }
 
 
-def run(board_name: str, grid: float, router: str = "maze") -> dict:
+def run(board_name: str, grid: float, router: str = "maze",
+        spread: bool = False) -> dict:
     dna = CircuitDNA.get(board_name)
     if dna is None:
         raise SystemExit(f"未知板 DNA: {board_name}  (可选: {CircuitDNA.list_names() if hasattr(CircuitDNA,'list_names') else '...'})")
@@ -81,6 +83,15 @@ def run(board_name: str, grid: float, router: str = "maze") -> dict:
     b = Board.load(work)
     if kcli:
         stages.append({"stage": "inlined(初始)", **real_drc(kcli, _save(b, work))})
+
+    sp = None
+    if spread:
+        sp = spread_placement(b)
+        _save(b, work)
+        if kcli:
+            stages.append({"stage": "spread(拉开后)", **real_drc(kcli, work),
+                           "moved": sp.moved,
+                           "overlaps": f"{sp.overlaps_before}→{sp.overlaps_after}"})
 
     rb = bind_netlist(b, dna.nets, reset=True)
     _save(b, work)
@@ -108,6 +119,7 @@ def run(board_name: str, grid: float, router: str = "maze") -> dict:
         "board": board_name,
         "bind": rb.to_dict(),
         "route": rr.to_dict(),
+        "spread": sp.to_dict() if sp else None,
         "kicad_cli": bool(kcli),
         "stages": stages,
     }
@@ -153,8 +165,9 @@ def main() -> None:
     ap.add_argument("board", nargs="?", default="ams1117_power")
     ap.add_argument("--grid", type=float, default=0.1)
     ap.add_argument("--router", choices=["maze", "maze2"], default="maze")
+    ap.add_argument("--spread", action="store_true", help="布线前先拉开 courtyard 相叠的元件")
     args = ap.parse_args()
-    res = run(args.board, args.grid, args.router)
+    res = run(args.board, args.grid, args.router, args.spread)
     print(json.dumps(res, ensure_ascii=False, indent=2))
     last = res["stages"][-1] if res["stages"] else {}
     if last.get("errors") == 0 and last.get("unconnected") == 0:
