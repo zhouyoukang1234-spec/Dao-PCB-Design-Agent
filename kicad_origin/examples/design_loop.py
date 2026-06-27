@@ -66,7 +66,7 @@ def real_drc(kcli: str, board_path: Path) -> dict:
 
 def run(board_name: str, grid: float, router: str = "maze",
         spread: bool = False, pinmap: bool = False,
-        width: float = 0.25, clearance: float = 0.2) -> dict:
+        width: float = 0.25, clearance: float = 0.2, fab: bool = False) -> dict:
     dna = CircuitDNA.get(board_name)
     if dna is None:
         raise SystemExit(f"未知板 DNA: {board_name}  (可选: {CircuitDNA.list_names() if hasattr(CircuitDNA,'list_names') else '...'})")
@@ -139,11 +139,18 @@ def run(board_name: str, grid: float, router: str = "maze",
             st["edges"] = f"{rr.edges_routed}/{rr.edges_total}"
         stages.append(st)
 
+    # 本源制造产出: DRC 干净则出可投产 fab 包 (Gerber/钻孔/贴片 zip)
+    fab_rep = None
+    if fab and kcli and stages and stages[-1].get("errors") == 0 and stages[-1].get("unconnected") == 0:
+        from kicad_origin.pcb.fab_export import export_fab
+        fab_rep = export_fab(work, REPO / "_agent_work" / f"{board_name}_fab", zip_it=True)
+
     result = {
         "board": board_name,
         "bind": rb.to_dict(),
         "route": rr.to_dict() if rr is not None else None,
         "autoroute": ar.to_dict() if ar is not None else None,
+        "fab": fab_rep.to_dict() if fab_rep is not None else None,
         "spread": sp.to_dict() if sp else None,
         "pinmap": pm.to_dict() if pm else None,
         "kicad_cli": bool(kcli),
@@ -203,9 +210,10 @@ def main() -> None:
                     help="布线器: maze/maze2(自研 A*) 或 freerouting(本源生态自动布线)")
     ap.add_argument("--width", type=float, default=0.25, help="走线宽 (mm); 细间距逆逃宜 0.15")
     ap.add_argument("--clearance", type=float, default=0.2, help="间距 (mm); 细间距逆逃宜 0.15")
+    ap.add_argument("--fab", action="store_true", help="DRC 净则出可投产 fab 包 (Gerber/钻孔/贴片 zip)")
     args = ap.parse_args()
     res = run(args.board, args.grid, args.router, args.spread, args.pinmap,
-              args.width, args.clearance)
+              args.width, args.clearance, args.fab)
     print(json.dumps(res, ensure_ascii=False, indent=2))
     last = res["stages"][-1] if res["stages"] else {}
     if last.get("errors") == 0 and last.get("unconnected") == 0:
