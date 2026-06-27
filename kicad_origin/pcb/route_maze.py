@@ -35,6 +35,7 @@ class MazeRouteReport:
     edges_total:     int = 0
     edges_routed:    int = 0
     segments_added:  int = 0
+    vias_added:      int = 0
     total_length_mm: float = 0.0
     per_net:         Dict[str, int] = field(default_factory=dict)
     failed:          List[Dict[str, Any]] = field(default_factory=list)
@@ -46,6 +47,7 @@ class MazeRouteReport:
             "edges_total": self.edges_total,
             "edges_routed": self.edges_routed,
             "segments_added": self.segments_added,
+            "vias_added": self.vias_added,
             "total_length_mm": round(self.total_length_mm, 3),
             "per_net": self.per_net,
             "failed": self.failed,

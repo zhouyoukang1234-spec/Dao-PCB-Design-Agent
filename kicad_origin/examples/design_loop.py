@@ -28,6 +28,7 @@ from pcb_brain.circuit_dna import CircuitDNA
 from kicad_origin.pcb.board import Board
 from kicad_origin.pcb.netbind import bind_netlist
 from kicad_origin.pcb.route_maze import route_ratsnest_maze
+from kicad_origin.pcb.route_maze2 import route_ratsnest_maze2
 
 REPO = Path(__file__).resolve().parents[2]
 KCLI_CANDIDATES = [
@@ -60,7 +61,7 @@ def real_drc(kcli: str, board_path: Path) -> dict:
     }
 
 
-def run(board_name: str, grid: float) -> dict:
+def run(board_name: str, grid: float, router: str = "maze") -> dict:
     dna = CircuitDNA.get(board_name)
     if dna is None:
         raise SystemExit(f"未知板 DNA: {board_name}  (可选: {CircuitDNA.list_names() if hasattr(CircuitDNA,'list_names') else '...'})")
@@ -88,12 +89,18 @@ def run(board_name: str, grid: float) -> dict:
                        "bound": rb.bound, "unbound": rb.unbound_count})
 
     t = time.time()
-    rr = route_ratsnest_maze(b, grid=grid)
+    if router == "maze2":
+        rr = route_ratsnest_maze2(b, grid=grid)
+        stage_name = "route_maze2(双层布线后)"
+    else:
+        rr = route_ratsnest_maze(b, grid=grid)
+        stage_name = "route_maze(布线后)"
     dt = time.time() - t
     _save(b, work)
     if kcli:
-        stages.append({"stage": "route_maze(布线后)", **real_drc(kcli, work),
+        stages.append({"stage": stage_name, **real_drc(kcli, work),
                        "segments": rr.segments_added,
+                       "vias": rr.vias_added,
                        "edges": f"{rr.edges_routed}/{rr.edges_total}",
                        "route_s": round(dt, 2)})
 
@@ -145,8 +152,9 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("board", nargs="?", default="ams1117_power")
     ap.add_argument("--grid", type=float, default=0.1)
+    ap.add_argument("--router", choices=["maze", "maze2"], default="maze")
     args = ap.parse_args()
-    res = run(args.board, args.grid)
+    res = run(args.board, args.grid, args.router)
     print(json.dumps(res, ensure_ascii=False, indent=2))
     last = res["stages"][-1] if res["stages"] else {}
     if last.get("errors") == 0 and last.get("unconnected") == 0:
