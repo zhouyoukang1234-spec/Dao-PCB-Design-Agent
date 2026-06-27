@@ -65,8 +65,28 @@
 - **`placeComponentWithMouse` 进入"跟随鼠标"放置态**,需一次画布点击落子;连续放置态用 Esc 退出。
 - `getCurrentRenderedAreaImage(t)` **arity=1**(需参数,尚未测清),反馈面暂用 `Page.captureScreenshot` 兜底。
 
-## 六、下一步(持续演化·不设终点)
+## 六、连线/网络已打通(真实连通的电路)· 已验证到 PCB ratline
 
-1. **真实连线/网络**:`sch_PrimitiveWire.create` + `sch_Net`/`sch_Netlist`,把分立器件连成有意义的电路(暴露引脚坐标/网络命名的边界)。
-2. **PCB 布局/布线**:`sch_Document.autoLayout` / `autoRouting`、`pcb_Document.importAutoRouteJsonFile`,以及 `pcb_PrimitiveLine`/`pcb_PrimitiveVia` 手工布线。
-3. **更大规模**:多页原理图、几十上百器件,压测并发与稳定性,持续补齐 `eda_flow`。
+**实测**(Dao_Flow:R—C—LED 三件):
+- `sch_PrimitiveWire.create(line, net)` 的 **`line` 是扁平段 `[x1,y1,x2,y2]`**(内部存为段数组 `[[x1,y1,x2,y2]]`);
+  传 `[[x,y],...]` / `{x,y}` / 路径串均 `create failed!`。
+- 引脚坐标取自 `sch_PrimitiveComponent.getAllPinsByPrimitiveId`(每针有 `x,y,pinNumber`),
+  直接连两针的 `(x,y)` 即电气连通 → 封装为 `Flow.connect_pins(compA,pinA,compB,pinB,net)`。
+- **网络验证要看 PCB 层**:`sch_Net.getAllNetsName` 不稳定常空(读计算态),
+  但 `importChanges` 同步后 `pcb_Net.getAllNetsName` 返回 `["N_CL","N_RC"]`,PCB 上出现 **ratline**(飞线)→ 连通是真的。
+
+### 又一批实战坑(已在 `eda_flow.py` 处理)
+
+- **`openProject` 在有未保存/告警对话框时静默空转**,导致后续操作误落到上一个工程
+  → `open_project` 先 `dismiss_dialogs()` 再切,切完**核对 `getCurrentProjectInfo().uuid`**,不符则重试报错。
+- **重开一个工程常卡在 20% 加载**(文档树/`getAllBoardsInfo` 返回空、图元 API 报"获取失败")
+  → 需一次**整页 reload**(`heal_service_workers` 即重载)让文档体加载完;之后图元 API 恢复正常。
+- **工程 URL 可确定性直达**:`https://pro.lceda.cn/editor#id=<projectUuid>,tab=*<pageUuid>@<projectUuid>`。
+- `getNetlist` / 部分查询偶发 `NO_RESULT`(超时),重试即可;`eda_api` 已带重试。
+
+## 七、下一步(持续演化·不设终点)
+
+1. **PCB 布局/布线**:`sch_Document.autoLayout`/`autoRouting`(参数 `{uuids,netlist,designatorDeviceTypeMap}`)、
+   `pcb_Document.importAutoRouteJsonFile`,或 `pcb_PrimitiveLine`/`pcb_PrimitiveVia` 手工布线,把 ratline 变实铜。
+2. **更大规模**:多页原理图、几十上百器件 + 电源/地网络标(`createNetFlag`/`setNetFlagComponentUuid_Ground` 等),压测并发与稳定性。
+3. **稳态化**:把"重开工程→reload→等加载完"固化为 `open_project` 的标准等待循环,降低 flaky。

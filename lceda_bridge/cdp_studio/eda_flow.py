@@ -45,6 +45,9 @@ _FIND_BTN = r"""(function(texts){
 })(%s)"""
 
 
+_DISMISS_TEXTS = ["Don't Save", "不保存", "Cancel", "取消", "No", "否", "关闭", "Close"]
+
+
 def ui_click_text(ws, texts, settle=1.5):
     """在页面里找文案完全匹配的可见元素并用真实鼠标事件点击。texts: 文案候选列表。"""
     if isinstance(texts, str):
@@ -81,11 +84,57 @@ class Flow:
         self.eda = eda_api.EDA(port=port, validate=False)
         self.ws = d.connect_editor(port or d.CDP_PORT)
 
+    # --- 对话框兜底 ---
+    def dismiss_dialogs(self, rounds=3):
+        """关闭可能挡住自动化的告警/未保存对话框(点 不保存/取消/关闭)。返回点掉的次数。"""
+        n = 0
+        for _ in range(rounds):
+            if ui_click_text(self.ws, _DISMISS_TEXTS, settle=1.2):
+                n += 1
+            else:
+                break
+        return n
+
+    def _current_uuid(self):
+        try:
+            cur = self.eda.call("dmt_Project.getCurrentProjectInfo")
+            return cur and cur.get("uuid")
+        except Exception:
+            return None
+
+    def wait_loaded(self, max_wait=15):
+        """等工程文档体加载完(实战坑:重开工程常卡 20%,boards/图元 API 返回空)。
+        返回 True 表示已加载;否则需 reload。"""
+        deadline = time.time() + max_wait
+        while time.time() < deadline:
+            try:
+                if self.eda.call("dmt_Board.getAllBoardsInfo"):
+                    return True
+            except Exception:
+                pass
+            time.sleep(2)
+        return False
+
     # --- 工程 / 文档 ---
-    def open_project(self, uuid):
-        ok = self.eda.call("dmt_Project.openProject", uuid, timeout=30)
-        time.sleep(3)
-        return ok
+    def open_project(self, uuid, retries=2):
+        """打开工程并**校验确已切换 + 确已加载**。两个实战坑:
+        ① editor 有未保存/告警对话框时 openProject 静默空转 → 误落上一个工程;
+        ② 重开工程常卡 20% 加载,文档树/图元 API 返回空 → 需整页 reload 才加载完。"""
+        for attempt in range(retries + 1):
+            self.dismiss_dialogs()
+            self.eda.call("dmt_Project.openProject", uuid, timeout=30)
+            time.sleep(3)
+            self.dismiss_dialogs()
+            if self._current_uuid() == uuid:
+                if self.wait_loaded():
+                    return True
+                # 切换成功但卡加载 → 整页 reload 强制加载文档体
+                d.heal_service_workers(self.ws)
+                time.sleep(6)
+                if self._current_uuid() == uuid and self.wait_loaded():
+                    return True
+            time.sleep(1)
+        raise FlowError("open_project 未就绪 %s(当前 %s)" % (uuid, self._current_uuid()))
 
     def project_info(self):
         return self.eda.call("dmt_Project.getCurrentProjectInfo")
@@ -128,6 +177,27 @@ class Flow:
 
     def schematic_component_ids(self):
         return self.eda.call("sch_PrimitiveComponent.getAllPrimitiveId", timeout=20)
+
+    def component_pins(self, comp_id):
+        return self.eda.call("sch_PrimitiveComponent.getAllPinsByPrimitiveId", comp_id, timeout=15)
+
+    # --- 连线 / 网络 ---
+    def wire(self, x1, y1, x2, y2, net=""):
+        """画一段导线。实战发现:line 参数是**扁平段** [x1,y1,x2,y2](内部存为段数组)。"""
+        return self.eda.call("sch_PrimitiveWire.create", [x1, y1, x2, y2], net, timeout=15)
+
+    def connect_pins(self, comp_a, pin_a, comp_b, pin_b, net=""):
+        """按引脚号连两个器件:查引脚坐标 → 画导线。pin_a/pin_b 为 pinNumber 字符串。"""
+        pa = {str(p["pinNumber"]): p for p in self.component_pins(comp_a)}
+        pb = {str(p["pinNumber"]): p for p in self.component_pins(comp_b)}
+        a, b = pa[str(pin_a)], pb[str(pin_b)]
+        return self.wire(a["x"], a["y"], b["x"], b["y"], net)
+
+    def save_schematic(self):
+        return self.eda.call("sch_Document.save", timeout=20)
+
+    def nets(self):
+        return self.eda.call("sch_Net.getAllNetsName", timeout=15)
 
     def pcb_component_ids(self):
         return self.eda.call("pcb_PrimitiveComponent.getAllPrimitiveId", timeout=20)
