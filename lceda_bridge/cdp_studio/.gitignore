@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+*.png
+jlc_session.json
+secret_to_upload_*
