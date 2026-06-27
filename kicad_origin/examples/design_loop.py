@@ -29,6 +29,7 @@ from kicad_origin.pcb.board import Board
 from kicad_origin.pcb.netbind import bind_netlist
 from kicad_origin.pcb.route_maze import route_ratsnest_maze
 from kicad_origin.pcb.route_maze2 import route_ratsnest_maze2
+from kicad_origin.pcb.autoroute import autoroute_freerouting
 from kicad_origin.pcb.placement import spread_placement
 from kicad_origin.pcb.pinmap import resolve_named_pins
 
@@ -109,25 +110,40 @@ def run(board_name: str, grid: float, router: str = "maze",
         stages.append(st)
 
     t = time.time()
-    if router == "maze2":
+    ar = None
+    if router in ("freerouting", "fr"):
+        # 本源自动布线: pcbnew 原生 DSN/SES 桥 + 生态布线器 Freerouting
+        ar = autoroute_freerouting(work, passes=20)
+        rr = None
+        stage_name = "freerouting(生态自动布线)"
+        b = Board.load(work)  # 重载被 pcbnew 写过的板
+    elif router == "maze2":
         rr = route_ratsnest_maze2(b, grid=grid, width=width, clearance=clearance)
         stage_name = "route_maze2(双层布线后)"
     else:
         rr = route_ratsnest_maze(b, grid=grid, width=width, clearance=clearance)
         stage_name = "route_maze(布线后)"
     dt = time.time() - t
-    _save(b, work)
+    if ar is None:
+        _save(b, work)          # 自研 A* 路径: 用本库序列化落盘
+    # freerouting 路径: pcbnew 已原生 SaveBoard, 勿再经本库重写 (以免丢轨)
     if kcli:
-        stages.append({"stage": stage_name, **real_drc(kcli, work),
-                       "segments": rr.segments_added,
-                       "vias": rr.vias_added,
-                       "edges": f"{rr.edges_routed}/{rr.edges_total}",
-                       "route_s": round(dt, 2)})
+        st = {"stage": stage_name, **real_drc(kcli, work), "route_s": round(dt, 2)}
+        if ar is not None:
+            st["tracks"] = ar.tracks
+            st["fr_unrouted"] = ar.unrouted
+            st["nets"] = ar.total_nets
+        else:
+            st["segments"] = rr.segments_added
+            st["vias"] = rr.vias_added
+            st["edges"] = f"{rr.edges_routed}/{rr.edges_total}"
+        stages.append(st)
 
     result = {
         "board": board_name,
         "bind": rb.to_dict(),
-        "route": rr.to_dict(),
+        "route": rr.to_dict() if rr is not None else None,
+        "autoroute": ar.to_dict() if ar is not None else None,
         "spread": sp.to_dict() if sp else None,
         "pinmap": pm.to_dict() if pm else None,
         "kicad_cli": bool(kcli),
@@ -145,10 +161,16 @@ def _save(b: Board, path: Path) -> Path:
 def _write_report(board_name: str, dna, result: dict) -> None:
     md = [f"# 实践报告 · 亲手布通一块 PCB ({board_name})", ""]
     md.append(f"- 板: `{board_name}` — {dna.description}")
-    md.append(f"- 链路: inline → **netbind** → **route_maze** → KiCad 真 DRC")
     r = result["route"]
-    md.append(f"- 结果: **{r['edges_routed']}/{r['edges_total']} 飞线布通**, "
-              f"{r['segments_added']} 段走线, 总长 {r['total_length_mm']}mm")
+    ar = result.get("autoroute")
+    if ar is not None:
+        md.append(f"- 链路: inline → **netbind** → **freerouting(本源生态自动布线)** → KiCad 真 DRC")
+        md.append(f"- 结果: **{ar['tracks']} 段走线** (网数 {ar['total_nets']}, "
+                  f"Freerouting 自报未布 {ar['unrouted']}, {ar['seconds']}s)")
+    elif r is not None:
+        md.append(f"- 链路: inline → **netbind** → **route_maze** → KiCad 真 DRC")
+        md.append(f"- 结果: **{r['edges_routed']}/{r['edges_total']} 飞线布通**, "
+                  f"{r['segments_added']} 段走线, 总长 {r['total_length_mm']}mm")
     md.append("")
     if result["stages"]:
         md.append("## 每阶段 KiCad 真 DRC (errors / unconnected)")
@@ -174,9 +196,11 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("board", nargs="?", default="ams1117_power")
     ap.add_argument("--grid", type=float, default=0.1)
-    ap.add_argument("--router", choices=["maze", "maze2"], default="maze")
     ap.add_argument("--spread", action="store_true", help="布线前先拉开 courtyard 相叠的元件")
     ap.add_argument("--pinmap", action="store_true", help="用符号库把命名引脚翻成脚号")
+    ap.add_argument("--router", default="maze",
+                    choices=["maze", "maze2", "freerouting", "fr"],
+                    help="布线器: maze/maze2(自研 A*) 或 freerouting(本源生态自动布线)")
     ap.add_argument("--width", type=float, default=0.25, help="走线宽 (mm); 细间距逆逃宜 0.15")
     ap.add_argument("--clearance", type=float, default=0.2, help="间距 (mm); 细间距逆逃宜 0.15")
     args = ap.parse_args()
