@@ -97,12 +97,13 @@ def bind_netlist(board: Any, nets: NetMap, *, reset: bool = False) -> BindReport
                 rep.unbound.append({"net": net_name, "ref": ref, "pin": pin,
                                     "reason": "no_footprint"})
                 continue
-            pad = fp.pad_by_number(pin)
-            if pad is None:
+            pads = fp.pads_by_number(pin)            # 同号焊盘 (EP+散热过孔) 全绑
+            if not pads:
                 rep.unbound.append({"net": net_name, "ref": ref, "pin": pin,
                                     "reason": "no_pad(命名引脚?需pinmap)"})
                 continue
-            pad.set_net(net.number, net_name)
+            for pad in pads:
+                pad.set_net(net.number, net_name)
             rep.bound += 1
             cnt += 1
         rep.by_net[net_name] = cnt

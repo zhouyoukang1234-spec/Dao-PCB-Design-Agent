@@ -28,6 +28,22 @@ from kicad_origin.lib.index import SymbolIndex
 
 NetMap = Dict[str, List[Tuple[str, str]]]
 
+# ── 保守别名表 (经核对, 仅收"实有正确符号且封装脚号相符"的项) ──────────────────
+# MPN(厂商料号) → KiCad 符号 lib_id. SymbolIndex 按通用名索引, 认不出料号时由此补。
+# 只收已逐个核对"封装脚号 ↔ 符号脚号 一致"的, 错则宁缺 —— 接错即短路, 知止不殆。
+MPN_SYMBOL_ALIASES: Dict[str, str] = {
+    "PCF8563T/5": "Timer_RTC:PCF8563T",      # SOIC-8, 脚号 1..8 与符号相符
+    "PCF8563T":   "Timer_RTC:PCF8563T",
+}
+
+# 引脚名别名 (规整后): DNA 逻辑名 → 符号引脚名. 仅收无歧义同义项。
+# 仅当符号无该精确引脚名时才用此别名 (见 resolve_named_pins: 先精确, 后别名)。
+# 刻意不收 AVDD/VDDIO→VCC: 它们可能是与 VDD 相互独立的电源轨, 乱并即短路 —— 不猜。
+PIN_NAME_ALIASES: Dict[str, str] = {
+    "VDD": "VCC", "VCC": "VDD",                    # 单电源轨器件常见同义
+    "VSS": "GND", "DGND": "GND", "AGND": "GND",    # 地的同义, 安全
+}
+
 
 def _norm(s: str) -> str:
     """引脚名归一: 大写, 剥 ~{} 低有效装饰, 只留字母数字与 +/- (差分号保意)."""
@@ -82,6 +98,8 @@ def _resolve_symbol(value: str) -> Optional[str]:
     """据元件 value 在符号库中认符号 → lib_id ("Lib:Name"); 认不出返 None."""
     if not value:
         return None
+    if value in MPN_SYMBOL_ALIASES:                    # 料号别名优先 (库索引认不出料号)
+        return MPN_SYMBOL_ALIASES[value]
     hits = SymbolIndex.search(value, limit=1)
     if not hits:
         return None
@@ -105,7 +123,10 @@ def resolve_named_pins(nets: NetMap, components: List[Any], *,
     rep = ResolveReport()
     comp_val = {c.ref: getattr(c, "value", "") for c in components}
     pmap_cache: Dict[str, Optional[Dict[str, List[str]]]] = {}   # value -> pinmap
-    aliases = {_norm(k): _norm(v) for k, v in (extra_aliases or {}).items()}
+    merged = dict(PIN_NAME_ALIASES)                   # 默认保守同义表
+    if extra_aliases:
+        merged.update(extra_aliases)                  # 调用方可覆盖/扩充
+    aliases = {_norm(k): _norm(v) for k, v in merged.items()}
 
     def get_pmap(ref: str) -> Optional[Dict[str, List[str]]]:
         val = comp_val.get(ref, "")

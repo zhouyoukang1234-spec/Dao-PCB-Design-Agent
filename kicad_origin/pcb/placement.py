@@ -16,6 +16,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+from kicad_origin.origin.sexpr import find_first
 from kicad_origin.pcb.geometry import BBox, Point
 
 
@@ -54,6 +55,19 @@ def courtyard_bbox(fp: Any) -> Optional[BBox]:
             if isinstance(s, list) and s and str(s[0]) == "layer":
                 layer = str(s[1])
         if layer not in ("F.CrtYd", "B.CrtYd"):
+            continue
+        if str(it[0]) == "fp_circle":
+            # 圆形外廓: bbox = 圆心 ± 半径 (半径 = |end - center|, 旋转无关)
+            cen = find_first(it, "center")
+            end = find_first(it, "end")
+            if cen and end and len(cen) >= 3 and len(end) >= 3:
+                cx, cy = float(cen[1]), float(cen[2])
+                r = math.hypot(float(end[1]) - cx, float(end[2]) - cy)
+                wx = pos.x + cx * ca - cy * sa
+                wy = pos.y + cx * sa + cy * ca
+                bb.expand(Point(wx - r, wy - r))
+                bb.expand(Point(wx + r, wy + r))
+                found = True
             continue
         for (lx, ly) in _xy_pairs(it):
             wx = pos.x + lx * ca - ly * sa
@@ -95,6 +109,118 @@ def _overlap_count(boxes: List[Tuple[float, float, float, float]]) -> int:
             if (abs(cx_i - cx_j) < hx_i + hx_j) and (abs(cy_i - cy_j) < hy_i + hy_j):
                 n += 1
     return n
+
+
+@dataclass
+class AutosizeReport:
+    components:      int = 0
+    before:          Tuple[float, float] = (0.0, 0.0)
+    after:           Tuple[float, float] = (0.0, 0.0)
+    required_mm2:    float = 0.0
+    resized:         bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"components": self.components,
+                "before": [round(v, 1) for v in self.before],
+                "after": [round(v, 1) for v in self.after],
+                "required_mm2": round(self.required_mm2),
+                "resized": self.resized}
+
+    def __str__(self) -> str:
+        return (f"[autosize] {self.before[0]:.0f}x{self.before[1]:.0f} → "
+                f"{self.after[0]:.0f}x{self.after[1]:.0f} mm "
+                f"({'放大' if self.resized else '足够,不变'})")
+
+
+def autosize_board(board: Any, *, target_util: float = 0.55,
+                   board_margin: float = 2.0) -> AutosizeReport:
+    """板框过小则按器件总面积自适应放大 (居中扩展), 给 spread 留出可拉开的空地.
+
+    道理: 元件挤成一坨而板上无地可挪, 非 spread 之过, 乃板框太小. 先量器件
+    courtyard 总面积, 除以目标占空 (target_util) 得所需板面; 若现框不足, 则等比
+    放大至够用, 且不小于最大元件. 地广则物各得其位 —— 为之于未有, 治之于未乱.
+    """
+    rep = AutosizeReport()
+    fps = list(board.footprints())
+    rep.components = len(fps)
+    if not fps:
+        return rep
+
+    sum_area = 0.0
+    max_w = max_h = 0.0
+    for fp in fps:
+        bb = courtyard_bbox(fp) or fp.bbox
+        w, h = bb.x_max - bb.x_min, bb.y_max - bb.y_min
+        if not (math.isfinite(w) and math.isfinite(h)) or w <= 0 or h <= 0:
+            continue
+        # courtyard 外再留与 spread 同源的间距, 估真实占地
+        w += 2 * 0.3; h += 2 * 0.3
+        sum_area += w * h
+        max_w, max_h = max(max_w, w), max(max_h, h)
+
+    outline = board.board_outline()
+    if outline is None:
+        bb = board.bbox()
+        ow, oh = bb.x_max - bb.x_min, bb.y_max - bb.y_min
+        x0, y0 = bb.x_min, bb.y_min
+    else:
+        x0, y0, x1, y1 = outline.to_tuple()
+        ow, oh = x1 - x0, y1 - y0
+    rep.before = (ow, oh)
+    rep.after = (ow, oh)
+    rep.required_mm2 = sum_area / max(target_util, 0.05)
+
+    cur_area = ow * oh
+    if cur_area >= rep.required_mm2 and ow >= max_w + 2 * board_margin \
+            and oh >= max_h + 2 * board_margin:
+        return rep                                   # 足够, 不动
+
+    # 需放大: 保持长宽比, 缩放到面积达标; 并保证不小于最大元件 + 留白
+    scale = math.sqrt(rep.required_mm2 / cur_area) if cur_area > 0 else 2.0
+    nw = max(ow * scale, max_w + 2 * board_margin)
+    nh = max(oh * scale, max_h + 2 * board_margin)
+    # 居中扩展
+    cx, cy = x0 + ow / 2.0, y0 + oh / 2.0
+    nx0, ny0 = cx - nw / 2.0, cy - nh / 2.0
+    if board.set_board_outline(nx0, ny0, nx0 + nw, ny0 + nh):
+        rep.after = (nw, nh)
+        rep.resized = True
+    return rep
+
+
+def fit_placement(board: Any, *, grow: float = 1.15, max_tries: int = 8,
+                  iters: int = 800, **spread_kw) -> Dict[str, Any]:
+    """自适应摆放: 先 spread; 仍有 courtyard 相叠则等比放大板框再 spread, 直到无叠或知止.
+
+    只在"挤不开"时才放大板框, 故本就宽裕的板不动分毫 —— 无为; 真挤了才扩, 扩到够
+    用即止 —— 知止不殆. 返回 {resized, tries, final_overlaps, before, after, spread}.
+    """
+    sp = spread_placement(board, iters=iters, **spread_kw)
+    out0 = board.board_outline()
+    before = (out0.x_max - out0.x_min, out0.y_max - out0.y_min) if out0 else (0, 0)
+    tries = 0
+    resized = False
+    while sp.overlaps_after > 0 and tries < max_tries:
+        tries += 1
+        o = board.board_outline()
+        if o is None:
+            break
+        x0, y0, x1, y1 = o.to_tuple()
+        w, h = x1 - x0, y1 - y0
+        cx, cy = x0 + w / 2.0, y0 + h / 2.0
+        nw, nh = w * grow, h * grow
+        if not board.set_board_outline(cx - nw / 2.0, cy - nh / 2.0,
+                                       cx + nw / 2.0, cy + nh / 2.0):
+            break
+        resized = True
+        sp = spread_placement(board, iters=iters, **spread_kw)
+    out1 = board.board_outline()
+    after = (out1.x_max - out1.x_min, out1.y_max - out1.y_min) if out1 else before
+    return {"resized": resized, "tries": tries,
+            "final_overlaps": sp.overlaps_after,
+            "before": [round(v, 1) for v in before],
+            "after": [round(v, 1) for v in after],
+            "spread": sp.to_dict()}
 
 
 def spread_placement(board: Any, *, courtyard_margin: float = 0.3,

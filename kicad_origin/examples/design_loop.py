@@ -30,7 +30,9 @@ from kicad_origin.pcb.netbind import bind_netlist
 from kicad_origin.pcb.route_maze import route_ratsnest_maze
 from kicad_origin.pcb.route_maze2 import route_ratsnest_maze2
 from kicad_origin.pcb.autoroute import autoroute_freerouting
-from kicad_origin.pcb.placement import spread_placement
+from kicad_origin.pcb.copper_pour import gnd_pour
+from kicad_origin.pcb.design_rules import set_fab_rules
+from kicad_origin.pcb.placement import spread_placement, fit_placement
 from kicad_origin.pcb.pinmap import resolve_named_pins
 
 REPO = Path(__file__).resolve().parents[2]
@@ -66,7 +68,8 @@ def real_drc(kcli: str, board_path: Path) -> dict:
 
 def run(board_name: str, grid: float, router: str = "maze",
         spread: bool = False, pinmap: bool = False,
-        width: float = 0.25, clearance: float = 0.2, fab: bool = False) -> dict:
+        width: float = 0.25, clearance: float = 0.2, fab: bool = False,
+        gnd_pour_net: str | None = None, fab_rules: bool = False) -> dict:
     dna = CircuitDNA.get(board_name)
     if dna is None:
         raise SystemExit(f"未知板 DNA: {board_name}  (可选: {CircuitDNA.list_names() if hasattr(CircuitDNA,'list_names') else '...'})")
@@ -89,12 +92,13 @@ def run(board_name: str, grid: float, router: str = "maze",
 
     sp = None
     if spread:
-        sp = spread_placement(b)
+        sp = fit_placement(b)                    # 自适应: 挤不开则放大板框再拉开
         _save(b, work)
         if kcli:
-            stages.append({"stage": "spread(拉开后)", **real_drc(kcli, work),
-                           "moved": sp.moved,
-                           "overlaps": f"{sp.overlaps_before}→{sp.overlaps_after}"})
+            stages.append({"stage": "fit(自适应拉开)", **real_drc(kcli, work),
+                           "resized": sp["resized"],
+                           "board": f"{sp['before']}→{sp['after']}",
+                           "overlaps": f"{sp['spread']['overlaps_before']}→{sp['final_overlaps']}"})
 
     nets = dna.nets
     pm = None
@@ -139,6 +143,24 @@ def run(board_name: str, grid: float, router: str = "maze",
             st["edges"] = f"{rr.edges_routed}/{rr.edges_total}"
         stages.append(st)
 
+    # 本源可投产设计规则: 最小钻对齐到器件与产线真实能力 (如 ESP32 EP 散热过孔 0.2mm)
+    if fab_rules:
+        set_fab_rules(work)
+        b = Board.load(work)
+        if kcli:
+            stages.append({"stage": "fab_rules(规则对齐)", **real_drc(kcli, work)})
+
+    # 本源 GND 地平面: 布线后铺 F.Cu/B.Cu 双层覆铜 + 过孔缝合, 连通零星 GND 残桥并改善回流地
+    pour_rep = None
+    if gnd_pour_net:
+        pour_rep = gnd_pour(work, net=gnd_pour_net)
+        b = Board.load(work)  # 重载被 pcbnew 写过的板
+        if kcli:
+            st = {"stage": f"gnd_pour({gnd_pour_net}覆铜缝合)", **real_drc(kcli, work)}
+            if pour_rep.ok:
+                st["pour"] = f"{pour_rep.zones}区/缝{pour_rep.stitched}过孔/跳{pour_rep.skipped}"
+            stages.append(st)
+
     # 本源制造产出: DRC 干净则出可投产 fab 包 (Gerber/钻孔/贴片 zip)
     fab_rep = None
     if fab and kcli and stages and stages[-1].get("errors") == 0 and stages[-1].get("unconnected") == 0:
@@ -150,8 +172,9 @@ def run(board_name: str, grid: float, router: str = "maze",
         "bind": rb.to_dict(),
         "route": rr.to_dict() if rr is not None else None,
         "autoroute": ar.to_dict() if ar is not None else None,
+        "gnd_pour": pour_rep.to_dict() if pour_rep is not None else None,
         "fab": fab_rep.to_dict() if fab_rep is not None else None,
-        "spread": sp.to_dict() if sp else None,
+        "spread": sp if sp else None,
         "pinmap": pm.to_dict() if pm else None,
         "kicad_cli": bool(kcli),
         "stages": stages,
@@ -211,9 +234,13 @@ def main() -> None:
     ap.add_argument("--width", type=float, default=0.25, help="走线宽 (mm); 细间距逆逃宜 0.15")
     ap.add_argument("--clearance", type=float, default=0.2, help="间距 (mm); 细间距逆逃宜 0.15")
     ap.add_argument("--fab", action="store_true", help="DRC 净则出可投产 fab 包 (Gerber/钻孔/贴片 zip)")
+    ap.add_argument("--gnd-pour", nargs="?", const="GND", default=None,
+                    help="布线后铺 GND 双层地平面+过孔缝合 (默认网名 GND)")
+    ap.add_argument("--fab-rules", action="store_true",
+                    help="把最小钻等规则对齐到器件与产线真实能力 (min_drill 0.2mm)")
     args = ap.parse_args()
     res = run(args.board, args.grid, args.router, args.spread, args.pinmap,
-              args.width, args.clearance, args.fab)
+              args.width, args.clearance, args.fab, args.gnd_pour, args.fab_rules)
     print(json.dumps(res, ensure_ascii=False, indent=2))
     last = res["stages"][-1] if res["stages"] else {}
     if last.get("errors") == 0 and last.get("unconnected") == 0:
