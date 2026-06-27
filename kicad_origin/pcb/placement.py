@@ -151,6 +151,11 @@ def spread_placement(board: Any, *, courtyard_margin: float = 0.3,
         if lo_y <= hi_y:
             centers[i][1] = min(hi_y, max(lo_y, centers[i][1]))
 
+    # 先把每个元件无条件夹回板框内 (含板缘留白): 否则只在"相叠"分支里夹的元件,
+    # 若它孤立地越界/贴边却不与谁相叠, 就永远不会被拉回 —— 这正是 copper_edge_clearance 之源.
+    for i in range(len(fps)):
+        clamp(i)
+
     n = len(fps)
     it = 0
     for it in range(1, iters + 1):
