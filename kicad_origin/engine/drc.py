@@ -263,3 +263,64 @@ class DRCEngine:
                         refs=[ri, rj],
                     ))
         return viols
+
+    # ── R007: 走线宽度过窄 ────────────────────────────────────────
+    def _r007_min_track_width(self) -> List[DRCViolation]:
+        """检测走线宽度低于最小值 (默认 0.1mm)."""
+        viols: List[DRCViolation] = []
+        min_w = 0.1
+        for seg in self.board.segments():
+            w = seg.width
+            if w < min_w:
+                viols.append(DRCViolation(
+                    rule="R007", severity=SEVERITY_WARNING,
+                    message=f"走线宽度过窄: {w:.3f}mm < {min_w}mm on {seg.layer}",
+                    location=seg.start.to_tuple() if hasattr(seg, 'start') else None,
+                ))
+        return viols
+
+    # ── R008: 未连接网络 (悬空焊盘) ──────────────────────────────
+    def _r008_unconnected_pad(self) -> List[DRCViolation]:
+        """检测焊盘 net_number=0 但非空 (悬空引脚)."""
+        viols: List[DRCViolation] = []
+        for fp in self.board.footprints():
+            for pad in fp.pads():
+                if pad.net_number == 0 and pad.type == "smd":
+                    viols.append(DRCViolation(
+                        rule="R008", severity=SEVERITY_INFO,
+                        message=f"悬空焊盘: {fp.ref}.{pad.number} (未连接网络)",
+                        refs=[fp.ref],
+                    ))
+        return viols
+
+    # ── R009: 丝印与焊盘重叠 ─────────────────────────────────────
+    def _r009_silkscreen_pad_overlap(self) -> List[DRCViolation]:
+        """检测丝印层 (F.SilkS/B.SilkS) 文本是否与焊盘位置重合."""
+        viols: List[DRCViolation] = []
+        from kicad_origin.origin.sexpr import find_all, find_first
+        tree = self.board.tree
+        silk_items = []
+        for tag in ["gr_text", "fp_text"]:
+            for item in find_all(tree, tag):
+                layer = find_first(item, "layer")
+                if layer and len(layer) >= 2 and "SilkS" in str(layer[1]):
+                    at = find_first(item, "at")
+                    if at and len(at) >= 3:
+                        silk_items.append((float(at[1]), float(at[2])))
+        if not silk_items:
+            return viols
+        for fp in self.board.footprints():
+            pos = fp.position
+            for pad in fp.pads():
+                px = pos.x + pad.position.x
+                py = pos.y + pad.position.y
+                for sx, sy in silk_items:
+                    if abs(px - sx) < pad.width / 2 and abs(py - sy) < pad.height / 2:
+                        viols.append(DRCViolation(
+                            rule="R009", severity=SEVERITY_WARNING,
+                            message=f"丝印与焊盘重叠: {fp.ref}.{pad.number} ({px:.2f},{py:.2f})",
+                            location=(px, py),
+                            refs=[fp.ref],
+                        ))
+                        break
+        return viols
