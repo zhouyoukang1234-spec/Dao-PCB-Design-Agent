@@ -64,7 +64,8 @@ def real_drc(kcli: str, board_path: Path) -> dict:
 
 
 def run(board_name: str, grid: float, router: str = "maze",
-        spread: bool = False, pinmap: bool = False) -> dict:
+        spread: bool = False, pinmap: bool = False,
+        width: float = 0.25, clearance: float = 0.2) -> dict:
     dna = CircuitDNA.get(board_name)
     if dna is None:
         raise SystemExit(f"未知板 DNA: {board_name}  (可选: {CircuitDNA.list_names() if hasattr(CircuitDNA,'list_names') else '...'})")
@@ -109,10 +110,10 @@ def run(board_name: str, grid: float, router: str = "maze",
 
     t = time.time()
     if router == "maze2":
-        rr = route_ratsnest_maze2(b, grid=grid)
+        rr = route_ratsnest_maze2(b, grid=grid, width=width, clearance=clearance)
         stage_name = "route_maze2(双层布线后)"
     else:
-        rr = route_ratsnest_maze(b, grid=grid)
+        rr = route_ratsnest_maze(b, grid=grid, width=width, clearance=clearance)
         stage_name = "route_maze(布线后)"
     dt = time.time() - t
     _save(b, work)
@@ -176,8 +177,11 @@ def main() -> None:
     ap.add_argument("--router", choices=["maze", "maze2"], default="maze")
     ap.add_argument("--spread", action="store_true", help="布线前先拉开 courtyard 相叠的元件")
     ap.add_argument("--pinmap", action="store_true", help="用符号库把命名引脚翻成脚号")
+    ap.add_argument("--width", type=float, default=0.25, help="走线宽 (mm); 细间距逆逃宜 0.15")
+    ap.add_argument("--clearance", type=float, default=0.2, help="间距 (mm); 细间距逆逃宜 0.15")
     args = ap.parse_args()
-    res = run(args.board, args.grid, args.router, args.spread, args.pinmap)
+    res = run(args.board, args.grid, args.router, args.spread, args.pinmap,
+              args.width, args.clearance)
     print(json.dumps(res, ensure_ascii=False, indent=2))
     last = res["stages"][-1] if res["stages"] else {}
     if last.get("errors") == 0 and last.get("unconnected") == 0:
