@@ -196,6 +196,36 @@ def call_eda(ws, ns_api, args=None, timeout=30):
         return {"ok": False, "err": "BAD_JSON", "raw": val}
 
 
+def heal_service_workers(ws, reload_wait=8):
+    """注销 pro.lceda.cn 的 Service Worker 并重载页面(冷启动健康化关键一步)。
+
+    本源问题:本 VM 上编辑器页注册的 Service Worker 会拦截并挂起所有运行时 fetch
+    (`/api/*` 永不返回 → GUI 新建工程报 "Network Error!"、CDP fetch 卡死),
+    而 shell/Python 直连 API 一切正常。注销 SW 并重载后,编辑器自身网络 + REST 全部恢复。
+    返回 {unregistered:int, reloaded:bool}。
+    """
+    out = {"unregistered": 0, "reloaded": False}
+    unreg = r"""(async()=>{try{
+      if(!('serviceWorker' in navigator)) return 0;
+      var regs=await navigator.serviceWorker.getRegistrations();
+      for(const r of regs){ await r.unregister(); }
+      return regs.length;
+    }catch(e){return -1}})()"""
+    val, _ = evaluate(ws, unreg, await_promise=True, timeout=15)
+    try:
+        out["unregistered"] = int(val)
+    except Exception:
+        pass
+    try:
+        ws.cmd("Page.enable", {}, timeout=3)
+        ws.cmd("Page.reload", {"ignoreCache": False}, timeout=10)
+        time.sleep(reload_wait)
+        out["reloaded"] = True
+    except Exception as ex:
+        out["err"] = str(ex)
+    return out
+
+
 def probe(ws):
     """探测 EDA API 是否在位, 返回可用命名空间列表。"""
     val, err = evaluate(
@@ -241,6 +271,8 @@ def _main(argv):
         ns_api = argv[2]
         args = json.loads(argv[3]) if len(argv) > 3 else []
         print(json.dumps(call_eda(ws, ns_api, args), ensure_ascii=False))
+    elif action == "heal":
+        print(json.dumps(heal_service_workers(ws), ensure_ascii=False))
     elif action == "shot":
         out = argv[2] if len(argv) > 2 else "eda_canvas.png"
         ok, info = capture_canvas(ws, out)

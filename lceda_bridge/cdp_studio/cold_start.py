@@ -91,6 +91,7 @@ def cold_start():
         return {"ok": False, "stage": "cdp", "err": str(ex), "steps": steps}
     st = login_state(ws); steps.append({"after": "open", **st})
     if st.get("loggedIn"):
+        steps.append({"after": "heal_sw", **d.heal_service_workers(ws)})
         return {"ok": True, "stage": "already", "state": st, "steps": steps}
 
     # 3: 注入持久化登录态
@@ -104,6 +105,7 @@ def cold_start():
         if st.get("loggedIn"):
             try: jlc_session.save(SESSION_FILE)
             except Exception: pass
+            steps.append({"after": "heal_sw", **d.heal_service_workers(_editor_ws(navigate=False))})
             return {"ok": True, "stage": "session_restore", "state": st, "steps": steps}
 
     # 4: 账号密码登录
@@ -120,6 +122,7 @@ def cold_start():
         if st.get("loggedIn"):
             try: jlc_session.save(SESSION_FILE)
             except Exception: pass
+            steps.append({"after": "heal_sw", **d.heal_service_workers(_editor_ws(navigate=False))})
             return {"ok": True, "stage": "password_login", "state": st, "steps": steps}
         return {"ok": False, "stage": "password_login",
                 "hint": "可能触发滑块/短信风控, 需一次人工短信验证(见 jlc_login.py)",

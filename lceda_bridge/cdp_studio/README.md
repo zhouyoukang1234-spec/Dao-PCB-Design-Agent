@@ -21,7 +21,41 @@ WebSocket，只要经 Chrome 远程调试(CDP)在**主页面上下文** `Runtime
 | `cdp_nav.py` | 导航/截图/查 target 的小工具 |
 | `jlc_login.py` | 经 CDP 驱动 `passport.jlc.com` 登录(手机号短信 / 账号密码) |
 | `jlc_session.py` | 登录态(cookies + 鉴权 localStorage)的**快照/恢复**——冷启动免登录核心 |
-| `cold_start.py` | **一键冷启动编排**:开编辑器→已登录?→注入登录态→账号密码登录→校验 |
+| `cold_start.py` | **一键冷启动编排**:开编辑器→已登录?→注入登录态→账号密码登录→校验→**heal SW** |
+| `eda_api_catalog.py` / `eda_api_catalog.json` | 全量**测绘** `_EXTAPI_ROOT_`(94 命名空间 / 701 方法)→ 机器可读目录 |
+| `eda_api.py` | **编辑器层**高层绑定:`eda.dmt_Project.xxx()` 直调、字符串寻址、`.map()` 多并发、自动重连、对照目录告警 |
+| `eda_rest.py` | **账号层**高层绑定:工程/团队/用户/文件夹的 REST CRUD(cookie 直连,绕过浏览器 SW) |
+| `PHASE4_FINDINGS.md` | Phase 4 本体测绘与实战发现录(两层架构 / SW 坑 / 已验证端点) |
+
+## 两层架构(道并行而不相悖)
+
+嘉立创EDA Pro Web 本源是**两层**,职责互补、不可混淆:
+
+- **账号层** = REST `pro.lceda.cn/api/*`(带登录 cookie):工程/文件夹/团队/用户的生命周期 CRUD。用 `eda_rest.py`。
+- **编辑器层** = `window._EXTAPI_ROOT_`(经 CDP):**已打开**工程/文档内的原理图、PCB、图元、渲染。用 `eda_api.py`。
+
+> 注:`_EXTAPI_ROOT_.dmt_Project.createProject` 在编辑器页是空操作、`getAllProjectsUuid` 只反映当前已打开工程;账号级工程 CRUD **必须走 REST 层**。详见 `PHASE4_FINDINGS.md`。
+
+### Service Worker 健康化(关键坑)
+
+本 VM 上编辑器页的 Service Worker 会拦截并挂起所有运行时 fetch(`/api/*` 永不返回,GUI 新建工程报 `Network Error!`),而 shell/Python 直连 API 正常。冷启动登录后会自动 `heal_service_workers`(注销 SW + 重载)恢复;也可手动:
+
+```bash
+python dao_eda_cdp_driver.py heal
+```
+
+### 两层调用示例
+
+```python
+from eda_rest import EdaRest          # 账号层
+r = EdaRest()
+r.list_projects(); r.create_project("我的工程")
+
+import eda_api                         # 编辑器层
+eda = eda_api.EDA()
+eda.dmt_Project.getCurrentProjectInfo()
+eda.map(["sys_Environment.getEditorCurrentVersion", "dmt_Project.getAllProjectsUuid"])  # 多并发
+```
 
 ## 冷启动:全新 VM 一条命令
 
