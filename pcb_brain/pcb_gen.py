@@ -118,6 +118,66 @@ def generate_pcb(dna_name: str, output_dir: str = ".") -> Dict[str, Any]:
     }
 
 
+def build_fab_package(dna_name: str, output_dir: str = "output/fab",
+                      *, solve: bool = True,
+                      render: bool = True) -> Dict[str, Any]:
+    """全链路: DNA → board → (solve_drc) → save → 真实 kicad-cli 制造文件。
+
+    工具在则产出真实 Gerber/钻孔/坐标/STEP/3D 渲染 + 真实 DRC; 工具不在则
+    优雅降级到纯 Python Gerber/BOM。返回每一步的结构化结果。
+    """
+    dna = CircuitDNA.get(dna_name)
+    if dna is None:
+        return {"ok": False, "error": f"Unknown DNA template: {dna_name}",
+                "available": CircuitDNA.list_names()}
+
+    from kicad_origin.engine.drc import DRCEngine
+    from kicad_origin.engine import kicad_cli as kc
+    from kicad_origin.engine.bom import save_bom
+
+    out = Path(output_dir); out.mkdir(parents=True, exist_ok=True)
+    board = dna_to_board(dna)
+    raw_e = DRCEngine(board).run().error_count
+    solved_e = raw_e
+    if solve:
+        from kicad_origin.dao.dao import Dao
+        from kicad_origin.agent.loop import PcbAgent
+        dao = Dao(); dao._board = board
+        PcbAgent(dao, max_iters=300).solve_drc()
+        solved_e = DRCEngine(board).run().error_count
+
+    pcb_path = out / f"{dna_name}.kicad_pcb"
+    board.save(str(pcb_path))
+
+    steps: Dict[str, Any] = {}
+    steps["bom"] = save_bom(board, str(out / f"{dna_name}_bom.csv")).to_dict()
+
+    used_real_tool = kc.kicad_cli_available()
+    if used_real_tool:
+        steps["gerbers"] = kc.export_gerbers(str(pcb_path), str(out / "gerber")).to_dict()
+        steps["drill"] = kc.export_drill(str(pcb_path), str(out / "gerber")).to_dict()
+        steps["pos"] = kc.export_pos(str(pcb_path), str(out / f"{dna_name}_pos.csv")).to_dict()
+        steps["step"] = kc.export_step(str(pcb_path), str(out / f"{dna_name}.step")).to_dict()
+        if render:
+            steps["render"] = kc.render_3d(str(pcb_path), str(out / f"{dna_name}.png")).to_dict()
+        steps["drc"] = kc.run_drc(str(pcb_path), str(out / f"{dna_name}_drc.json")).to_dict()
+    else:
+        from kicad_origin.engine.gerber import generate_gerber
+        steps["gerbers"] = {"ok": generate_gerber(
+            board, str(out / "gerber"), project_name=dna_name).ok,
+            "backend": "pure_python"}
+
+    return {
+        "ok": True,
+        "dna": dna_name,
+        "path": str(pcb_path),
+        "internal_drc": {"raw_errors": raw_e, "solved_errors": solved_e},
+        "kicad_cli": kc.kicad_cli_version() if used_real_tool else None,
+        "backend": "kicad-cli" if used_real_tool else "pure_python",
+        "steps": steps,
+    }
+
+
 def generate_all(output_dir: str = ".") -> Dict[str, Any]:
     """Generate all 21 DNA templates as .kicad_pcb files."""
     results = []

@@ -282,6 +282,27 @@ def main() -> int:
     except Exception as e:
         check("MCP", False, str(e))
 
+    # ── 全链路制造包 (kicad-cli 真工具 / 纯Python 降级双轨) ──────────
+    print("\n── build_fab_package (real kicad-cli OR graceful degrade) ──")
+    try:
+        from pcb_brain.pcb_gen import build_fab_package
+        from kicad_origin.engine import kicad_cli as kc
+        avail = kc.kicad_cli_available()
+        check("kicad_cli_available()", isinstance(avail, bool),
+              f"kicad-cli {'present '+(kc.kicad_cli_version() or '') if avail else 'absent → pure-python'}")
+        r = build_fab_package("dht22_sensor", output_dir="output/_verify_fab",
+                              render=False)
+        check("fab.ok", r.get("ok") is True, f"backend={r.get('backend')}")
+        check("fab.solved", r["internal_drc"]["solved_errors"] == 0,
+              f"E {r['internal_drc']['raw_errors']}→{r['internal_drc']['solved_errors']}")
+        check("fab.gerbers", r["steps"]["gerbers"].get("ok") is True)
+        if avail:
+            check("fab.drc(real)", r["steps"]["drc"].get("ok") is True,
+                  str(r["steps"]["drc"].get("data")))
+            check("fab.render artifacts", len(r["steps"]["step"].get("artifacts", [])) >= 1)
+    except Exception as e:
+        check("build_fab_package", False, str(e))
+
     # ── Top-level package ────────────────────────────────────────
     print("\n── Top-level package ──")
     try:
