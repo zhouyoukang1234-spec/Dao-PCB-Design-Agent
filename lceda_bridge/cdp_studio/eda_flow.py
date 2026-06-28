@@ -628,6 +628,35 @@ class Flow:
         n = len(self.eda.call("pcb_PrimitiveLine.getAllPrimitiveId", timeout=15) or [])
         return n
 
+    def rebuild_imported_vias(self):
+        """把 Freerouting/SES 回灌的过孔**逐颗重建为嘉立创自建过孔**,修复"换层过孔不被连通认定"。
+
+        第二十二章硬验证的根因+解法:`importAutoRouteSesFile` 落库的过孔,其图元在位、网对、
+        顶/底铜精确落在同坐标(并查集 min gap=0.00mil),但**嘉立创连通性不认它把两层接通** →
+        面板报焊盘 disconnected(连接错误)。实验证明:删掉该过孔、用 `pcb_PrimitiveVia.create`
+        在**同坐标同参数**重建一颗**嘉立创自建过孔**,该过孔即进嘉立创连通图、两层接通、焊盘连接错误消失。
+
+        api.js 真签名:`Vi(net,x,y,holeDiameter,diameter,viaType=0,blindName,solderMaskExp,lock)`。
+        **务必在 import_ses 之后、敷铜(auto_ground_pour)之前调用**——因为敷铜要在连通确定后才铺,
+        且对已敷铜的板做铜层手术会令敷铜避让塌陷(第二十二章 22.8 一败的教训)。返回重建过孔数。
+        """
+        vids = self.eda.call("pcb_PrimitiveVia.getAllPrimitiveId", timeout=20) or []
+        n = 0
+        for vid in vids:
+            g = self.eda.call("pcb_PrimitiveVia.get", vid, timeout=8) or {}
+            net = g.get("net")
+            if not net:
+                continue
+            try:
+                self.eda.call("pcb_PrimitiveVia.delete", vid, timeout=10)
+                self.eda.call("pcb_PrimitiveVia.create", net, g["x"], g["y"],
+                              g["holeDiameter"], g["diameter"],
+                              g.get("viaType", 0), timeout=15)
+                n += 1
+            except Exception:
+                pass
+        return n
+
     def export_all(self, out_dir, base="Dao"):
         os.makedirs(out_dir, exist_ok=True)
         res = {}

@@ -86,8 +86,14 @@ def main():
     b, rep = build_unrouted(spec)
     # 外部布线器(完整 JLC 规则)闭环——在刚建好的未布线板上跑
     rep["freerouting"] = fr.route_with_freerouting(base=spec.name + "_JLC", jlc=True)
-    # 敷铜 + DRC + 导出
+    # 敷铜前**先把 Freerouting 过孔重建为嘉立创自建过孔**(第二十二章根因:SES 过孔不被连通认定),
+    # 修复换层处焊盘连接错误;务必在敷铜之前(敷铜要在连通确定后才铺,见 22.8 一败教训)。
     f = eda_flow.Flow()
+    try:
+        rep["vias_rebuilt"] = f.rebuild_imported_vias()
+    except Exception as e:
+        rep["vias_rebuilt"] = "ERR:" + str(e)[:60]
+    # 敷铜 + DRC + 导出
     pour = None
     if getattr(b, "_ground_pour", False):
         try:
