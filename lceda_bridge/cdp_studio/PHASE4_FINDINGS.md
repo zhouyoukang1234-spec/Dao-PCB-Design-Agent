@@ -320,3 +320,28 @@ Or=class{constructor(net, layer, complexPolygon, fillMethod="solid",
 
 引擎已据此定型:`BoardSpec(net_widths={"GND":12,...})` 走**布线后加粗**(非规则法),
 默认布通→加粗→(可选)铺地→DRC→导出。道:粗细非在规则之名,而在布通之后顺势而为。
+
+## 十八、外部布线器闭环——EasyEDA ⇄ Freerouting(DSN 出 / SES 回)全程序化打通
+
+给系统接上业界最强开源布线器 **Freerouting** 作"可替换的外部大脑",三段边界全部硬验证打通
+(`freerouting_route.py` 一键编排 + `Flow.export_dsn/import_ses` 两个引擎方法):
+
+1. **DSN 出**(`pcb_ManufactureData.getDsnFile` → Blob):落地标准 Specctra DSN
+   (structure/boundary/rules/placement/library 齐全)。**坑**:必须从**未布线**板导出——
+   已布线/已敷铜板导出时,wiring/shape 段引用层 "1"/"2" 而 structure 段层名是
+   TopLayer/BottomLayer,Freerouting 读到层名错配狂刷 WARNING 并丢走线。未布线板导出干净。
+2. **Freerouting 跑批**:本机无 Java → 拉 Temurin JRE21 便携包 + freerouting-1.9.0.jar;
+   `java -jar freerouting.jar -de in.dsn -do out.ses -mp 6` 跑批布线、按 -do 自动落 SES。
+   **坑**:v1.9.0 在有显示器时仍弹 GUI 确认框("Autorouter is about to start"),
+   用 PowerShell `SendKeys {ENTER}` 轮询自动确认即可无人值守跑完。
+3. **SES 回**(`pcb_Document.importAutoRouteSesFile`):**形参就是一个浏览器 File 对象**
+   ——逐一试出来的:File 直传 = 0→47 条铜线落库;字符串/{file}/{fileName,file} 均报错。
+   把磁盘 SES 字节 base64 灌进页面、in-page `new File([u],...)` 再调用即落库。
+
+实测(NE555 七件板,全自动一条命令):DSN 出 → Freerouting 布线 → SES 回 → **47 条铜线 + 2 过孔,
+0 鼠线(全网连通)**,顶红底蓝双层走线(截图)。**遗留边界**:Freerouting 全连通但其走线间距/过孔
+与 JLCPCB 6mil 规则有少量出入 → EasyEDA DRC 报几处间距违规(非未布线,是规则口径差);
+下一步需把 JLC 规则(线宽/间距/过孔)写进 DSN 的 (rule ...) 段让 Freerouting 按嘉立创口径布线。
+
+至此本系统拥有**两套布线后端**:嘉立创内置(快、DRC 自洽)与 Freerouting(强、需规则对齐),
+按需切换。道:善建者不拔,接口既通,外脑可换。

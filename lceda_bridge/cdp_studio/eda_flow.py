@@ -506,6 +506,38 @@ class Flow:
     def export_pdf(self, out_path, name="PCB"):
         return self._export("window._EXTAPI_ROOT_.pcb_ManufactureData.getPdfFile(%s)" % json.dumps(name), out_path)
 
+    # --- 外部布线器(Freerouting)闭环:DSN 出 / SES 回 ---
+    def export_dsn(self, out_path, name="DSN"):
+        """导出 Specctra **DSN**(外部布线器 Freerouting 的输入)。
+
+        本会话攻克的边界:`pcb_ManufactureData.getDsnFile(fileName)` 返回 Blob,走通用导出
+        blob 通道即落地标准 Specctra DSN(含 structure/boundary/rules/placement/library)。
+        **关键教训**:DSN 必须从**未布线**的板导出(只有摆件+板框+鼠线);若从已布线/已敷铜的板
+        导出,其 wiring/shape 段会引用层 "1"/"2",而 structure 段层名是 TopLayer/BottomLayer,
+        Freerouting 读到层名不匹配会刷 WARNING 并丢弃既有走线。未布线板导出则干净。
+        """
+        return self._export("window._EXTAPI_ROOT_.pcb_ManufactureData.getDsnFile(%s)" % json.dumps(name), out_path)
+
+    def import_ses(self, ses_path, settle=2):
+        """把 Freerouting 布完的 **SES** 回灌进当前 PCB(外部布线结果落库)。
+
+        本会话攻克的边界:`pcb_Document.importAutoRouteSesFile(t)` 的 t **就是一个浏览器 File 对象**
+        (不是字符串、不是 {file}、不是 {fileName,file}——逐一试出来的:File 直传 = 0→47 条铜线落库,
+        其余形参均报错)。于是把磁盘上的 SES 字节 base64 灌进页面、in-page 构造 File 再调用即可。
+        返回导入后的铜线总数。
+        """
+        with open(ses_path, "rb") as fh:
+            b64 = base64.b64encode(fh.read()).decode()
+        js = (r"""(async()=>{var R=window._EXTAPI_ROOT_;var bin=atob("%s");"""
+              r"""var u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);"""
+              r"""var file=new File([u],"route.ses",{type:"text/plain"});"""
+              r"""try{await R.pcb_Document.importAutoRouteSesFile(file);return "OK";}"""
+              r"""catch(e){return "ERR "+String(e&&e.message||e);}})()""") % b64
+        v, e = d.evaluate(self.ws, js, await_promise=True, timeout=60)
+        time.sleep(settle)
+        n = len(self.eda.call("pcb_PrimitiveLine.getAllPrimitiveId", timeout=15) or [])
+        return n
+
     def export_all(self, out_dir, base="Dao"):
         os.makedirs(out_dir, exist_ok=True)
         res = {}
