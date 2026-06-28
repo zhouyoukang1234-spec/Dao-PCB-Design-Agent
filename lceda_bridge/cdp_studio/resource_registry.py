@@ -60,9 +60,12 @@ ENDPOINTS = {
     ],
     "跨生态格式整合": [
         ("sys_FormatConversion.convertAltiumDesignerLibrariesToEasyEDASingleFile",
-         "Altium 库 → EasyEDA", False),
+         "Altium .SchLib/.PcbLib → .elibz2(实测 2符号/3封装)", True),
+        ("sys_FormatConversion.convertAltiumDesignerLibrariesToEasyEDAMultiFiles",
+         "Altium 库 → 多 .elibz2 数组", True),
         ("sys_FileManager.importProjectByProjectFile", "工程文件导入(JSON 桥丢二进制)", False),
-        ("pcb_Document.importAutoRouteSesFile", "FreeRouting .ses 布线结果导入", False),
+        ("pcb_ManufactureData.getDsnFile", "→ Specctra .dsn(喂 FreeRouting)", True),
+        ("pcb_Document.importAutoRouteSesFile", "FreeRouting .ses 回灌(实测 ret=true,布线改变)", True),
         ("pcb_Document.importAutoLayoutJsonFile", "外部布局结果导入", False),
         ("worker:/mgr/projectWorker/import", ".epru 整板无损灌库(正道)", True),
     ],
@@ -72,7 +75,7 @@ ENDPOINTS = {
         ("pcb_ManufactureData.getNetlistFile", "→ .enet 文件", True),
         ("pcb_ManufactureData.getBomFile", "→ BOM .xlsx", True),
         ("pcb_ManufactureData.getGerberFile", "→ Gerber .zip", True),
-        ("pcb_ManufactureData.getAltiumDesignerFile", "→ 导出为 Altium", False),
+        ("pcb_ManufactureData.getAltiumDesignerFile", "→ Altium 工程 ZIP(.schdoc/.pcbdoc)", True),
         ("sys_Tool.netlistComparison", "网表差异比对", False),
     ],
     "社区生态·立创开源广场": [
@@ -149,6 +152,54 @@ def export_file(kind, ws=None, timeout=60):
     if not obj.get("ok"):
         return None, None
     return obj["name"], base64.b64decode(obj["b64"])
+
+
+def import_autoroute_ses(ses_bytes, ws=None, timeout=120):
+    """②跨生态:把 FreeRouting 等外部布线器产出的 Specctra .ses 回灌当前 PCB。
+    ses_bytes:bytes 或 str(路径)。返回端点结果(实测 True 表应用成功)。需 PCB 文档已打开。"""
+    if isinstance(ses_bytes, str) and os.path.exists(ses_bytes):
+        ses_bytes = open(ses_bytes, "rb").read()
+    b64 = base64.b64encode(ses_bytes).decode()
+    js = (
+        "(async()=>{try{var bin=atob(%s);var a=new Uint8Array(bin.length);"
+        "for(var i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i);"
+        "var file=new File([a],'route.ses',{type:'text/plain'});"
+        "var r=await window._EXTAPI_ROOT_.pcb_Document.importAutoRouteSesFile(file);"
+        "return JSON.stringify({ok:true,ret:(r===undefined?'undefined':r)});"
+        "}catch(e){return JSON.stringify({ok:false,err:String(e&&e.message||e)});}})()"
+        % json.dumps(b64)
+    )
+    v, e = d.evaluate(_ws(ws), js, await_promise=True, timeout=timeout)
+    if e:
+        raise RuntimeError("import_autoroute_ses -> %s" % e)
+    return json.loads(v)
+
+
+def convert_altium_library(lib_bytes, filename="lib.SchLib", multi=False, ws=None, timeout=120):
+    """②跨生态:把 Altium 库(.SchLib/.PcbLib/.IntLib)转为 EasyEDA Pro 库 .elibz2。
+    lib_bytes:bytes 或 str(路径)。返回结果摘要(SingleFile→File,MultiFiles→数组)。"""
+    if isinstance(lib_bytes, str) and os.path.exists(lib_bytes):
+        filename = os.path.basename(lib_bytes)
+        lib_bytes = open(lib_bytes, "rb").read()
+    b64 = base64.b64encode(lib_bytes).decode()
+    method = ("convertAltiumDesignerLibrariesToEasyEDAMultiFiles" if multi
+              else "convertAltiumDesignerLibrariesToEasyEDASingleFile")
+    js = (
+        "(async()=>{try{var bin=atob(%s);var a=new Uint8Array(bin.length);"
+        "for(var i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i);"
+        "var file=new File([a],%s);"
+        "var r=await window._EXTAPI_ROOT_.sys_FormatConversion.%s(file);"
+        "if(Array.isArray(r))return JSON.stringify({ok:true,arrLen:r.length});"
+        "if(r&&r.arrayBuffer){var b=new Uint8Array(await r.arrayBuffer());"
+        "return JSON.stringify({ok:true,fileName:r.name,bytes:b.length});}"
+        "return JSON.stringify({ok:true,type:typeof r});"
+        "}catch(e){return JSON.stringify({ok:false,err:String(e&&e.message||e)});}})()"
+        % (json.dumps(b64), json.dumps(filename), method)
+    )
+    v, e = d.evaluate(_ws(ws), js, await_promise=True, timeout=timeout)
+    if e:
+        raise RuntimeError("convert_altium_library -> %s" % e)
+    return json.loads(v)
 
 
 def get_community_epro2(oshwhub_uuid, ws=None, timeout=60):
