@@ -359,6 +359,20 @@ class Flow:
         self.eda.call("pcb_Drc.overwriteNetRules", rules, timeout=25)
         return n
 
+    def create_diff_pair(self, name, pos_net, neg_net):
+        """**程序化**建差分对(高速信号 USB/CAN/LVDS 等正负成对约束)。
+
+        本会话攻克的边界:`pcb_Drc.createDifferentialPair(name, pos, neg)` **返回 True 且落库**
+        ——`getAllDifferentialPairs()` 立刻复读到 {name, positiveNet, negativeNet}。这与
+        `createNetClass`(返回空、getAllNetClasses 恒 []、addNetToNetClass 返回 False、**始终不落库**)
+        形成鲜明对比:**差分对这条路是通的,网类那条至今不通**。返回是否成功。
+        """
+        ok = self.eda.call("pcb_Drc.createDifferentialPair", name, pos_net, neg_net, timeout=20)
+        return bool(ok)
+
+    def get_diff_pairs(self):
+        return self.eda.call("pcb_Drc.getAllDifferentialPairs", timeout=15) or []
+
     def widen_net_tracks(self, width_mil, nets):
         """**程序化**给指定网络的已布铜线加粗(电源/地走粗线)。
 

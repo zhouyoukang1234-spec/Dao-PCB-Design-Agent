@@ -353,3 +353,32 @@ Or=class{constructor(net, layer, complexPolygon, fillMethod="solid",
 **DRC 全过**(NE555 实测:6.03→DRC False 几处违规;8.5→**61 铜线+多过孔、0 鼠线、DRC True、Gerber 导出**)。
 至此外部布线器闭环**完全打通且产出可送厂**:`route_with_freerouting(clear_mil=8.5)` 一条命令
 = EasyEDA 出 DSN(抬间距)→ Freerouting 跑批 → SES 回灌 → DRC 过 → 送厂包。双布线后端皆可送厂。
+
+## 第十九章 · 差分对落库 + 多电源域板暴露的"逃逸共线并网"真因(本会话)
+
+### 19.1 差分对 createDifferentialPair 落库成功(与 createNetClass 形成对照)
+`pcb_Drc.createDifferentialPair(name, posNet, negNet)` **返回 True 且立刻落库**——
+`getAllDifferentialPairs()` 当即复读到 `{name, positiveNet, negativeNet}`。这与 `createNetClass`
+(返回 null、`getAllNetClasses` 恒 []、始终不落库)截然相反:**差分对这条路通,网类那条至今不通**。
+已并入引擎:`BoardSpec(diff_pairs=[(name,pos,neg),...])` → 布线前自动建对(`Flow.create_diff_pair`)。
+多电源域板实测 `diff: {"CAN": true}`。
+
+### 19.2 多电源域板(5V+3.3V 双稳压 + CAN 差分)暴露的真实缺陷:V3V3 网被并进 GND
+首块多电源域板(L7805 出 5V → AMS1117-3.3 出 3.3V,TO-220+SOT-223+排针):一键 build 后
+`sync` 报 **missing: ["V3V3"]**——3.3V 网在 PCB 上**整张消失**。逐 pad 复查:U2(AMS1117 SOT-223)
+落得 `1:GND 2:GND 3:V5 4:-`,而 C3/C4 也都 `1:GND 2:GND`——**V3V3 的三个引脚(U2.2、C3.1、C4.1)
+全部变成了 GND**。即:小网被大网 GND **吞并**。但 DRC 仍过(未连网=鼠线,非 DRC 错)。
+
+### 19.3 真因:底/顶边一排引脚"水平逃逸共线重叠"
+旧 `wire()` 对**所有**引脚一律按 `facing = x≥cx?+1:-1` **水平逃逸**。对 SOT-223 / TO-220 这类
+**底边一排引脚(1-2-3 同一个 Y)**,三条水平逃逸线**落在同一条 Y 上、首尾相叠 = 共线重叠**;
+嘉立创按几何重算连通性,把中间脚(VOUT=V3V3)与两侧(GND/VIN)**短接**,V3V3 遂经 U2.2 并入 GND。
+关键反证:**纯交叉不并网**(V5 的竖落线穿过 GND 横轨却幸存)——故元凶只是**共线重叠**,非交叉。
+此前四板未触发,是因其多脚 IC(TQFP/DIP)引脚在四边分布、或中间脚恰与邻脚同网。
+
+### 19.4 修复:按引脚所在边选逃逸方向 + 各轴 lane 全局去重
+新 `wire()`:用 `dx=px-cx, dy=py-cy` 判边——`|dx|≥|dy|` 为**侧边脚**(各脚 Y 唯一)走"水平短桩(24)
+→ 唯一列竖落到轨";否则为**顶/底边脚**(各脚 X 唯一)**直接在本列竖直落到轨**,绝不与同排脚共线。
+逃逸列 `reserve()` 全局去重(`used_x` + 离任何 pin ≥12)。纯交叉不成节点,故消灭共线即根治。
+**同板重跑实测**:`missing: []`、V3V3 传播、`route 56 铜线+2 过孔`、`diff CAN:true`、双面 GND 敷铜、
+**DRC True**、Gerber 20.5KB。引擎布线鲁棒性自此覆盖"任意封装任意边排脚"。

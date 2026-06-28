@@ -45,13 +45,14 @@ class BoardSpec:
     nets:  {网络名: [(designator, pinNumber), ...], ...}
     """
 
-    def __init__(self, name, parts, nets, introduction="", ground_pour=False, net_widths=None):
+    def __init__(self, name, parts, nets, introduction="", ground_pour=False, net_widths=None, diff_pairs=None):
         self.name = name
         self.parts = parts
         self.nets = nets
         self.introduction = introduction or (name + " — Dao declarative board")
         self.ground_pour = ground_pour  # True 则布线后自动双面铺 GND 地平面
-        self.net_widths = net_widths or {}  # {网络名: 线宽mm} 首次布线前写入设计规则(电源/地走粗线)
+        self.net_widths = net_widths or {}  # {网络名: 线宽mil} 布线后逐条加粗目标网
+        self.diff_pairs = diff_pairs or []  # [(name, pos_net, neg_net), ...] 差分对约束(落库,见 create_diff_pair)
 
     def pin_count_hint(self):
         """每个器件在 nets 里被引用到的最大引脚号(用于放件后粗校验引脚数是否够)。"""
@@ -152,23 +153,34 @@ class BoardBuilder:
 
     # ---- 阶段 3:正交逃逸 + 网络专属横轨布线(无碰撞,端点只落目标脚) ----
     def wire(self, spec, rail_base=1000, rail_gap=60):
+        """正交逃逸 + 每网专属横轨布线。
+
+        **本会话攻克的边界(V3V3 网被并进 GND 的真因)**:旧版对所有引脚一律**水平逃逸**——
+        但 SOT-223/TO-220 这类**底边一排引脚**(1-2-3 同 Y)水平逃逸时,三条逃逸线**共线重叠**,
+        嘉立创按几何重算连通性 → 中间脚(VOUT=V3V3)与两侧(GND/VIN)短接,小网被大网 GND 吞掉。
+        正解:**按引脚所在边选逃逸方向**——侧边脚(|dx|≥|dy|,各脚 Y 唯一)走水平短桩 + 唯一列竖落轨;
+        顶/底边脚(各脚 X 唯一)直接在本列竖落到轨。各轴 lane 全局去重杜绝共线;纯交叉不成节点
+        (已由 V5 不被并验证),故只需消灭**共线重叠**即不再误并网。
+        """
         f = eda_flow.Flow()
         f.open_document(self.state["sch_page"])
         ids = self.state["ids"]
         pin_info, pin_xs = {}, set()
         for ref, cid in ids.items():
             c = f.eda.call("sch_PrimitiveComponent.get", cid)
-            cx = c["x"]
+            cx, cy = c["x"], c["y"]
             for p in (f.component_pins(cid) or []):
-                facing = 1 if p["x"] >= cx else -1
-                pin_info[(ref, str(p["pinNumber"]))] = (p["x"], p["y"], facing)
+                dx, dy = p["x"] - cx, p["y"] - cy
+                side = abs(dx) >= abs(dy)  # True=侧边脚(水平逃逸), False=顶/底边脚(竖直落轨)
+                fx = 1 if dx >= 0 else -1
+                pin_info[(ref, str(p["pinNumber"]))] = (p["x"], p["y"], side, fx)
                 pin_xs.add(p["x"])
         used_x = set()
 
-        def lane(x, facing):
-            ex = x + facing * 120
+        def reserve(x0, step):
+            ex = x0
             while ex in used_x or any(abs(ex - px) < 12 for px in pin_xs):
-                ex += facing * 16
+                ex += step
             used_x.add(ex)
             return ex
 
@@ -180,12 +192,21 @@ class BoardBuilder:
                 info = pin_info.get((ref, str(pin)))
                 if not info:
                     warns.append("missing pin %s.%s for %s" % (ref, pin, net)); continue
-                x, y, facing = info
-                ex = lane(x, facing)
-                f.wire(x, y, ex, y, net)
-                f.wire(ex, y, ex, rail_y, net)
+                x, y, side, fx = info
+                if side:
+                    # 侧边脚:本脚 Y 唯一 → 水平短桩到唯一列 ex,再竖落到轨(短桩不与同列脚共线)
+                    ex = reserve(x + fx * 24, fx * 16)
+                    f.wire(x, y, ex, y, net)
+                    f.wire(ex, y, ex, rail_y, net)
+                    made += 2
+                else:
+                    # 顶/底边脚:本脚 X 唯一 → 直接在本列竖直落到轨(绝不与同排脚共线)
+                    ex = reserve(x, 16)
+                    if ex != x:
+                        f.wire(x, y, ex, y, net); made += 1  # X 被占则先平移到唯一列
+                    f.wire(ex, y, ex, rail_y, net)
+                    made += 1
                 escapes.append(ex)
-                made += 2
             if len(escapes) >= 2:
                 xs = sorted(escapes)
                 f.wire(xs[0], rail_y, xs[-1], rail_y, net)
@@ -222,6 +243,14 @@ class BoardBuilder:
         f.reload_and_reopen(self.state["project"], self.state["pcb"])
         f.prepare_pcb_nets()
         time.sleep(2)
+        dps = getattr(self, "_diff_pairs", []) or []
+        diff = None
+        if dps:
+            diff = {}
+            for nm, pos, neg in dps:
+                diff[nm] = f.create_diff_pair(nm, pos, neg)
+            f.eda.call("pcb_Document.save", timeout=20)
+            time.sleep(1)
         route = f.autoroute_gui(wait=18)
         # 线宽:先默认布通,再**布线后**逐条加粗目标网铜线(规则法会让布线器罢工,见 widen_net_tracks)
         widths = getattr(self, "_net_widths", {}) or {}
@@ -246,7 +275,7 @@ class BoardBuilder:
         out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                (out_base or self.state.get("name", "Dao")) + "_fab")
         exp = f.export_all(out_dir, base=out_base or self.state.get("name", "Dao"))
-        return {"outline": bo, "widened": widened, "route": route, "pour": pour, "drc": drc, "export_dir": out_dir,
+        return {"outline": bo, "diff": diff, "widened": widened, "route": route, "pour": pour, "drc": drc, "export_dir": out_dir,
                 "export": {k: (v.get("size") if isinstance(v, dict) else v) for k, v in exp.items()}}
 
     # ---- 一键全流程 ----
@@ -258,6 +287,7 @@ class BoardBuilder:
         report["sync"] = self.sync(spec)
         self._ground_pour = getattr(spec, "ground_pour", False)
         self._net_widths = getattr(spec, "net_widths", {})
+        self._diff_pairs = getattr(spec, "diff_pairs", [])
         report["route_export"] = self.route_export(out_base=spec.name, margin=margin)
         return report
 
