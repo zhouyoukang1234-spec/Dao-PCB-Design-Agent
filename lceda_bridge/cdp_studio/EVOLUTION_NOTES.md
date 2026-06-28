@@ -490,6 +490,25 @@ BOARD×4 SCH×4 PCB×4,但其中 **活动(未删除)只有** FOOTPRINT×50 SYMBO
 - 社区接入要点:oshwhub 同源 `/api/project/{uuid}` 取元数据;
   `getProjectFileByProjectUuid(<oshwhubUuid>)` 取整包 .epro2(公开工程不受所有权门控)。
 
+### 实证③:天下资源整合面(三大支柱·全程零 GUI 实测)
+道法自然·取之尽锱铢——不从零搭建,把 JLC 已有的全球级资源逆出底层直接拿来用。一次扫描即编目
+出可程序化复用的端点族(沉淀为 `resource_registry.py`,verified 项均本会话实测):
+
+1. **天下器件库(LCSC/JLC 数百万元件,免自建库)**:`lib_Device.search("AMS1117-3.3")` 实测回
+   10 条(首 = AMS1117-3.3_C6186);`lib_Device.getByLcscIds(["C6186"])` 按 LCSC 编号直取器件
+   (uuid 解析成功)。配 `lib_Footprint/Symbol/3DModel.search` 与 `registerExtendLibrary`。
+
+2. **跨生态格式整合(KiCad/Altium/外部布线器 → JLC)**:`sys_FormatConversion`(Altium 库转换)、
+   `pcb_Document.importAutoRouteSesFile`(吃 FreeRouting `.ses`)、`importAutoLayoutJsonFile`、
+   worker `/import`(.epru 整板无损灌库,正道)。
+
+3. **全链路制造闭环(程序化导出 + 比对)**:在一块 populated 克隆上实测——`pcb_Net.getNetlist`
+   回 JSON 网表(version/components/designRule);`pcb_ManufactureData.getNetlistFile`→`Net_List.enet`
+   (732B)、`getBomFile`→`Export_BOM.xlsx`(6.6KB)、`getGerberFile`→`Gerber_*.zip`(4.3KB);
+   `sch_ManufactureData.getNetlistFile`→`.enet`(979B)。`sys_Tool.netlistComparison` 备网表比对。
+
+→ 三支柱 + 既有社区接入/精确克隆,构成"任何需求 → 匹配已集成能力"的资源底座(`resource_registry.print_registry()` 可一览;`search_devices/devices_by_lcsc/export_file/get_community_epro2` 为薄封装)。
+
 ### .epru 文档关系·实测 schema(深挖订正)
 拆解源 .epru 各子文档段,纠正先前"拓扑不在离线包"的猜测——**父子拓扑其实就在子文档 META 里**:
 - **BOARD** 段:`META{"title":"Board1","zIndex":1}`(板标题/层序)。
