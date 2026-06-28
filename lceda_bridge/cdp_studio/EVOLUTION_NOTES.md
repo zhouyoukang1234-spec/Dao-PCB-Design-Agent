@@ -439,24 +439,34 @@ PCB:    器件×1066  命名网络×1644  焊盘×17506  过孔×4554  走线×2
 2. 文档功能名离线缺失 → 功能分区现靠 net/partId 启发式;后续可经在线结构 API 取真实页名。
 
 ### 实证②:社区成品 → 我账号 **端到端克隆**(EDA-Pager 寻呼机)
-oshwhub `d6f7528f939246efa27ed7e0ba022c6f`(立创课程案例,3.1 MB .epro2 / 10.6 MB .epru,
-源:FOOTPRINT×55 SYMBOL×88 DEVICE×77 **BOARD×4 SCH×4 SCH_PAGE×4 PCB×4**)。
+oshwhub `d6f7528f939246efa27ed7e0ba022c6f`(立创课程案例,3.1 MB .epro2 / 10.6 MB .epru)。
+**关键澄清**:.epru 是工程的完整编辑历史字典,含历史删除文档(段内带
+`DELETE_DOC{isDelete:true}`)。该工程**全量** DOCHEAD = FOOTPRINT×55 SYMBOL×88 DEVICE×77
+BOARD×4 SCH×4 PCB×4,但其中 **活动(未删除)只有** FOOTPRINT×50 SYMBOL×87 DEVICE×76
+**BOARD×1 SCH×1 PCB×1**——即编辑器中实际可见的就 1 块活动板(其余 3 板系历史删除)。
 经 `demo_project_clone.py`(getProjectFileByProjectUuid → createProject → worker
 `/mgr/projectWorker/import`)克隆进我账号工程 `85732e77534b4392b67f4bc4507ad532`:
-- import 映射:symbolMap×87 deviceMap×76 footprintMap×50 schematicMap×1 pcbMap×1 boardMap×1 …
+- import 映射:symbolMap×87 deviceMap×76 footprintMap×50 schematicMap×1 pcbMap×1 boardMap×1
+  —— **与源活动结构精确一致**(1 板 1 SCH 1 PCB + 全部库实体)。
 - 克隆 PCB **整板渲染完好**(见 proofs/pager_community_clone_pcb.png):板框 / 底层铜皮 /
   布线 / 过孔 / 焊盘 / ANTENNA 丝印 / 金手指;选中一条 TRACK 属性真实:
   Layer=Bottom, Length=51.939mm, **Net=+3.9V**, NetLength=72.363mm —— 网络/布线无损落库。
 
-### ★ 本会话**新暴露**的系统边界(逐项)
-1. **多 Board 工程单次 import 只重建 1 块板**:源 4 BOARD/4 SCH/4 PCB,单次 worker import
-   仅落库 1 块(库实体 symbol/device/footprint 近乎全量,但 board/sch/pcb 结构只 1 套)。
-   → 根因:`import`(Xd) 以**单一 board 上下文**收口;export3.0 单帧只挂主板。
-   → 突破方向:**按源 BOARD 逐块迭代 import**(每块前建 board 上下文),或逆出多板 structure 帧。
+### ★ 本会话系统边界(逐项 · 含一处自我订正)
+0. **【订正】先前误判的"多 Board 丢失"不成立**:我最初用全量 DOCHEAD 计数(`doc_counts`)
+   把 3 块**历史删除板**误计为活动板,得出"4 板只克隆 1 板"的错误结论。深挖 .epru 的
+   `DELETE_DOC` 标记后确认:源**活动结构本就只有 1 板**,worker import **如实克隆了全部活动设计**,
+   无任何丢失。已修 `doc_counts(live_only=True)` 区分活动/历史删除,完整性判定改为逐类
+   克隆 ≥ 源活动数。教训:.epru 是编辑历史字典,统计工程结构必须先按 DELETE_DOC 过滤。
+1. **createProject 自带 1 块空默认板**:克隆工程因此比源活动结构多 1 块空 BOARD/SCH/PCB
+   (克隆活动 BOARD×2 vs 源 ×1)。→ 改进方向:导库后删除该空默认板,或令 import 复用默认板,
+   得到与源逐字节对齐的精确克隆。
 2. **超大工程透传上限**:177 MB .epru(X86 主板)单帧 worker import 风险高(浏览器/worker
    内存 + CDP 帧)。→ 突破方向:分文档流式注入,或服务端复制(SaveAs-to-Cloud 命令)免透传。
 3. **EXTAPI `copyProject` 在 Web 为空壳**(`copyProject(t,i,n,r,s){}` 空体);桌面端 copyProject
    走文件 path。→ 坐实:工程级复制在 Web 仍须走 worker 总线(非 EXTAPI),与既有"EXTAPI 天花板"一致。
+4. **真·多活动板场景未被本工程覆盖**:EDA-Pager 仅 1 活动板,故"多活动板单帧 import 行为"
+   仍待用一块**多活动板(拼板/多变体)社区工程**实测验证。
 
 ### 沉淀的可复用资产
 - `reverse_analyze.py`:成品 .epro2 → 设计情报(层叠/网络分类/功能块/BOM/封装)。
@@ -464,13 +474,12 @@ oshwhub `d6f7528f939246efa27ed7e0ba022c6f`(立创课程案例,3.1 MB .epro2 / 10
 - 社区接入要点:oshwhub 同源 `/api/project/{uuid}` 取元数据;
   `getProjectFileByProjectUuid(<oshwhubUuid>)` 取整包 .epro2(公开工程不受所有权门控)。
 
-### 多 Board 边界·根因定位(深挖)
-拆解源 .epru 的 BOARD 段:每个 BOARD DOCHEAD 后仅 `META{"title":"Board1_1","zIndex":1}`
-(+DELETE_DOC 标记),**不含 board→sch→pcb 的父子拓扑**。即:
-- 离线字典(.epru)携带 board 的 META(标题/层序)与全部库实体,但**多板装配拓扑存于服务端工程结构**,
-  不在离线包内(与"DOCHEAD 无 title 须服务端补"同源)。
-- 单次 worker import 收口于**单一 board 上下文**:返回 boardMap/schematicMap/pcbMap 各 ×1
-  (源有 4),只实例化主板那套文档。
-→ **解法(下一模块):导库后按 BOARD META 逐块注册工程结构**——以 import 映射得到的新 doc uuid +
-  各 BOARD 的 title/zIndex,调用结构/板管理 worker 端点逐块建板并挂载其 sch/pcb 子文档,
-  补齐离线包缺失的多板拓扑。这是"结构注册"模块,非单帧 import 所能覆盖。
+### .epru 文档关系·实测 schema(深挖订正)
+拆解源 .epru 各子文档段,纠正先前"拓扑不在离线包"的猜测——**父子拓扑其实就在子文档 META 里**:
+- **BOARD** 段:`META{"title":"Board1","zIndex":1}`(板标题/层序)。
+- **SCH** 段:`META{"title":"Schematic1","board":"<boardUuid>",...}` —— SCH **反向引用其 BOARD**。
+- **SCH_PAGE** 段:`META{"title":"P1","schematic":"<schUuid>",...}` —— 页**反向引用其 SCH**。
+- **PCB** 段:`META{"title":"PCB1","board":"<boardUuid>",...}` —— PCB **反向引用其 BOARD**。
+- 段首 `DELETE_DOC{isDelete:true}` 标记该文档为历史删除。
+即:**离线 .epru 自含完整多板拓扑**(经子文档 META 的 board/schematic 反向引用),
+可据此对**多活动板**工程做按板分组/逐块迁移。这为未来"真·多活动板克隆"提供了离线可解析的拓扑依据。

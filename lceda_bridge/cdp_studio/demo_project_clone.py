@@ -60,18 +60,33 @@ def epru_text(epro2_bytes):
     return z.read(name).decode("utf-8")
 
 
-def doc_counts(epru_str):
-    """统计 .epru 内每类子文档(DOCHEAD.docType)数量。"""
-    c = Counter()
+def doc_counts(epru_str, live_only=False):
+    """统计 .epru 内每类子文档(DOCHEAD.docType)数量。
+
+    .epru 是工程的**完整编辑历史字典**,含历史删除的文档(段内带
+    `DELETE_DOC{isDelete:true}` 标记)。`live_only=True` 仅统计活动文档,
+    与编辑器中实际可见的工程结构一致(否则会把历史删除板误计为活动板)。
+    """
+    docs = []  # [docType, deleted]
+    cur = None
     for ln in epru_str.split("\n"):
         ln = ln.strip()
         if not ln:
             continue
         head = json.loads(ln.split("||", 1)[0])
-        if head.get("type") == "DOCHEAD":
+        htype = head.get("type")
+        if htype == "DOCHEAD":
             p = ln.split("||", 1)[1]
             p = p[:-1] if p.endswith("|") else p
-            c[json.loads(p).get("docType")] += 1
+            cur = [json.loads(p).get("docType"), False]
+            docs.append(cur)
+        elif cur is not None and htype == "DELETE_DOC":
+            cur[1] = True
+    c = Counter()
+    for dt, deleted in docs:
+        if live_only and deleted:
+            continue
+        c[dt] += 1
     return dict(c)
 
 
@@ -85,8 +100,11 @@ def run(src_proj=SRC_DEFAULT, clone_name=None):
     print("源工程:", src_proj_info.get("friendlyName"), src_proj)
     src_bytes, _ = download_epro2(ws, src_proj)
     epru = epru_text(src_bytes)
-    src_counts = doc_counts(epru)
-    print("源 .epru 字节:", len(epru), "子文档:", src_counts)
+    src_counts = doc_counts(epru, live_only=True)
+    src_all = doc_counts(epru)
+    print("源 .epru 字节:", len(epru))
+    print("源 活动子文档:", src_counts)
+    print("源 全量(含历史删除):", src_all)
 
     # 2) 建全新空工程 + 打开文档使 worker 实例化 ------------------------------
     clone = f.create_project(clone_name)
@@ -117,15 +135,18 @@ def run(src_proj=SRC_DEFAULT, clone_name=None):
         print("save warn:", repr(e)[:100])
     time.sleep(4)
     clone_bytes, clone_fname = download_epro2(ws, clone)
-    clone_counts = doc_counts(epru_text(clone_bytes))
+    clone_counts = doc_counts(epru_text(clone_bytes), live_only=True)
     print("克隆 .epro2:", clone_fname, len(clone_bytes), "字节")
-    print("克隆子文档:", clone_counts)
+    print("克隆 活动子文档:", clone_counts)
 
-    ok = all(clone_counts.get(k, 0) >= v for k, v in src_counts.items()
-             if k in ("FOOTPRINT", "SYMBOL", "DEVICE"))
-    print("库子文档完整(footprint/symbol/device 全数落库):", ok)
+    # 完整性:克隆的活动设计应 ≥ 源活动设计(库 + BOARD/SCH/PCB)。
+    # 注意 createProject 自带 1 块空默认板,故 BOARD/SCH/PCB 克隆数会比源多 1。
+    check = ("FOOTPRINT", "SYMBOL", "DEVICE", "BOARD", "SCH", "PCB")
+    ok = all(clone_counts.get(k, 0) >= src_counts.get(k, 0) for k in check)
+    print("活动设计完整(克隆 ≥ 源,逐类):", ok)
     return {"src": src_proj, "clone": clone, "map": m,
-            "src_counts": src_counts, "clone_counts": clone_counts, "ok": ok}
+            "src_live": src_counts, "src_all": src_all,
+            "clone_live": clone_counts, "ok": ok}
 
 
 if __name__ == "__main__":
