@@ -5,9 +5,45 @@ __pycache__/
 .venv/
 output/
 *.egg-info/
-dist/
-build/
-.pytest_cache/
-*.bak
+
+# Logs
+*.log
+logs/
+
+# Runtime
+pcb_brain/output/
+pcb_brain/jre/
+pcb_brain/freerouting.jar
+dao_kicad/out/
+dao_kicad/**/out/
+.ws_bridge_port
+# 构建产物 (.eext 由 build_eext.py 生成; 入口源码在 L2_extension/dist/index.js)
+/lceda_bridge/dist/
+
+# Session/screencast (regenerable)
+_live_session/
+_screencast/
+_test_out/
+
+# Large binaries
+*.zip
+*.7z
+*.rar
+*.jar
+
+# OS junk
+Thumbs.db
+desktop.ini
+*.tmp
+~$*
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# Backups
+*.backup_*
+
+# transient agent-loop demo output
 _agent_work/
-test_board.kicad_pcb

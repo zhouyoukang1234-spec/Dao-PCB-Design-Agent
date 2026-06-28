@@ -94,11 +94,15 @@ def _run(cmd, timeout=600):
 
 
 def autoroute_freerouting(board_path, *, passes: int = 20, work_dir=None,
+                          clearance_margin_mm: float = 0.005,
                           java: Optional[str] = None, jar: Optional[str] = None,
                           kicad_python: Optional[str] = None,
                           timeout: int = 600) -> AutorouteReport:
     """本源自动布线: pcbnew 导出 DSN → Freerouting → pcbnew 导回 SES 并保存。
 
+    clearance_margin_mm: 送给布线器的 DSN 额外加宽的间距余量 (默认 0.005mm), 避免 Freerouting
+    贴边走线因 ~1.8µm 取整被 KiCAD DRC 判 clearance 违例。值过大(如 0.05)会挤垮密板布通率,
+    故取仅够覆盖取整的小余量。最终板仍用原始间距规则。
     返回 AutorouteReport。真理仍以随后的 kicad-cli DRC 为准, 此处 unrouted 仅 Freerouting 自报。
     """
     board_path = Path(board_path)
@@ -112,8 +116,9 @@ def autoroute_freerouting(board_path, *, passes: int = 20, work_dir=None,
     jv = java or find_java()
     jr = jar or find_freerouting_jar()
 
-    # 1) pcbnew 原生导出 DSN
-    r = _run([kp, str(_HELPER), "export", str(board_path), str(dsn)], timeout=120)
+    # 1) pcbnew 原生导出 DSN (附间距余量)
+    margin_nm = str(int(round(max(0.0, clearance_margin_mm) * 1e6)))
+    r = _run([kp, str(_HELPER), "export", str(board_path), str(dsn), margin_nm], timeout=120)
     if "EXPORT_OK" not in r.stdout:
         rep.note = f"DSN 导出失败: {(r.stdout + r.stderr).strip()[:300]}"
         return rep
@@ -121,7 +126,10 @@ def autoroute_freerouting(board_path, *, passes: int = 20, work_dir=None,
     # 2) Freerouting 生态布线器 (无头)
     if ses.exists():
         ses.unlink()
-    fr = _run([jv, "-jar", jr, "-de", str(dsn), "-do", str(ses), "-mp", str(passes)],
+    # -Djava.awt.headless=true: 无控制台(子进程)下 Freerouting 会试图起 AWT/GUI 而阻塞,
+    # 强制无头即纯命令行布线、跑完即退。
+    fr = _run([jv, "-Djava.awt.headless=true", "-jar", jr,
+               "-de", str(dsn), "-do", str(ses), "-mp", str(passes)],
               timeout=timeout)
     log = fr.stdout + fr.stderr
     m = re.search(r"started with (\d+) unrouted nets", log)

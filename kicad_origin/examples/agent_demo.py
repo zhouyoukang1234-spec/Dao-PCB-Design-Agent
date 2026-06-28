@@ -25,16 +25,22 @@ from kicad_origin import Dao
 from kicad_origin.agent import PcbAgent
 
 
-DEFAULT_BOARD = "rp2040_minimal"
+# 默认用一块**有真实焊盘且 DRC 干净**的 inlined 板 (fab_all.py 产物).
+# 只有带真实焊盘的板才能触发 R001 焊盘重叠 → 才有真 DRC ERROR 可闭环修复.
+DEFAULT_BOARD = "w5500_ethernet"
 PCB_ROOT = Path("pcb_brain/output")
 WORK_ROOT = Path("_agent_work")
 
 
 def _find_board(name: str) -> Path:
-    cand = PCB_ROOT / name / f"{name}.kicad_pcb"
-    if cand.exists():
-        return cand
-    hits = list(PCB_ROOT.glob(f"{name}/*.kicad_pcb")) or list(PCB_ROOT.glob(f"**/{name}*.kicad_pcb"))
+    # 优先 _fab/<name>_inlined.kicad_pcb (含真实焊盘); 退而求其次用 placement-only 正本.
+    inlined = PCB_ROOT / name / "_fab" / f"{name}_inlined.kicad_pcb"
+    if inlined.exists():
+        return inlined
+    hits = (list(PCB_ROOT.glob(f"{name}/_fab/{name}_inlined.kicad_pcb"))
+            or list(PCB_ROOT.glob(f"**/{name}_inlined.kicad_pcb"))
+            or list(PCB_ROOT.glob(f"{name}/{name}.kicad_pcb"))
+            or list(PCB_ROOT.glob(f"**/{name}*.kicad_pcb")))
     if not hits:
         raise SystemExit(f"找不到板: {name} (在 {PCB_ROOT})")
     return hits[0]
@@ -62,18 +68,31 @@ def main(argv=None) -> int:
     base_errors = (base.result or {}).get("errors", -1)
     print(f"■ 基线 DRC: {base_errors} errors  (期望 0)")
 
-    # ── 人为制造缺陷: 把第二个元件搬到第一个元件位置 → 焊盘重叠 ──
+    # ── 人为制造缺陷 (几何鲁棒): 把某个元件搬到“焊盘最多”的锐上 → 焊盘重叠 ──
+    # 依焊盘数降序, 锐=焊盘最多者; 依次试着把其他元件搬上去, 一旦 DRC 报错就停
+    # (不触发的复位原位), 保证只注入一处可修复的真缺陷.
     fps = dao.list_footprints().result["items"]
     if len(fps) < 2:
         raise SystemExit("板上元件 < 2, 无法制造重叠")
-    a, b = fps[0], fps[1]
-    dao.move_footprint(b["ref"], a["x_mm"], a["y_mm"], save=True)
-    perturbed = dao.run_drc()
-    perturbed_errors = (perturbed.result or {}).get("errors", 0)
-    print(f"■ 注入缺陷: 把 {b['ref']} 搬到 {a['ref']}@({a['x_mm']},{a['y_mm']}) "
-          f"→ DRC {perturbed_errors} errors, by_rule={(perturbed.result or {}).get('by_rule')}")
-    if perturbed_errors == 0:
-        print("  (该板几何下未触发重叠 ERROR; 演示仍会运行, 智能体将判定已干净)")
+    ranked = sorted(
+        ({**f, "pads": dao.get_footprint_info(f["ref"]).result.get("pad_count", 0)}
+         for f in fps),
+        key=lambda f: f["pads"], reverse=True)
+    anchor = ranked[0]
+    injected_ref = None
+    perturbed_errors = 0
+    for mover in ranked[1:]:
+        dao.move_footprint(mover["ref"], anchor["x_mm"], anchor["y_mm"], save=True)
+        e = (dao.run_drc().result or {}).get("errors", 0)
+        if e > 0:
+            injected_ref, perturbed_errors = mover["ref"], e
+            break
+        dao.move_footprint(mover["ref"], mover["x_mm"], mover["y_mm"], save=True)  # 复位
+    if injected_ref is None:
+        print("  (该板几何下任何单个元件与锐重叠都不触发 ERROR; 请换一块板, 如 --board led_indicator)")
+        return 1
+    print(f"■ 注入缺陷: 把 {injected_ref} 搬到 {anchor['ref']}@({anchor['x_mm']},{anchor['y_mm']}) "
+          f"→ DRC {perturbed_errors} errors, by_rule={(dao.run_drc().result or {}).get('by_rule')}")
 
     # ── 放手让智能体闭环求解 ──
     print("■ 智能体接管 (看→想→做→验→悟)…\n")
@@ -107,8 +126,11 @@ def main(argv=None) -> int:
     rep_md.write_text("\n".join(lines), encoding="utf-8")
     print(f"■ 报告: {rep_md}")
 
-    # ── 退出码: 注入了缺陷且最终干净 = 真闭环成功 ──
-    ok = report.solved and (perturbed_errors == 0 or report.initial_errors > 0)
+    # ── 退出码: 基线干净 → 注入缺陷 → 智能体还原到 0 ERROR = 真闭环成功 ──
+    ok = (base_errors == 0 and perturbed_errors > 0 and report.solved
+          and report.final_errors == 0)
+    print(f"■ 闭环判定: 基线 {base_errors}E → 注入 {perturbed_errors}E → 智能体收敛 {report.final_errors}E "
+          f"→ {'✓ 成功' if ok else '✗ 未达成'}")
     return 0 if ok else 1
 
 

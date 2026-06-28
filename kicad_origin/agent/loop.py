@@ -156,8 +156,12 @@ class PcbAgent:
         )
 
     # ── 想 ────────────────────────────────────────────────────────
-    def plan(self, p: Perception, iteration: int) -> PlannedAction:
-        """选第一条可几何修复的 ERROR, 规划把 refs[1] 沿 refs[0]->refs[1] 轴推开."""
+    def plan(self, p: Perception, escalation: int = 0) -> PlannedAction:
+        """选第一条可几何修复的 ERROR, 规划把 refs[1] 从 refs[0] 推开.
+
+        escalation 随“上一手越推越坏”而递增: 每 +1 把推出方向旋 90°、半径加一档,
+        绕锐元件扫描出一块空地 (跳出局部陷阱) —— 未知生于有, 有生于无.
+        """
         for v in p.error_violations:
             if v.get("rule") not in _SEPARABLE_RULES:
                 continue
@@ -175,12 +179,16 @@ class PcbAgent:
                 ux, uy = 1.0, 0.0          # 完全重合 → 默认向东推
             else:
                 ux, uy = dx / dist, dy / dist
-            step = self.base_nudge_mm * iteration   # 步长随回合递增, 必然收敛或触顶
-            nx, ny = ax + ux * step, ay + uy * step
+            theta = math.radians(90.0 * escalation)   # 随 escalation 旋转推出方向
+            rx = ux * math.cos(theta) - uy * math.sin(theta)
+            ry = ux * math.sin(theta) + uy * math.cos(theta)
+            step = self.base_nudge_mm * (escalation + 1)   # 半径随挡增大
+            nx, ny = ax + rx * step, ay + ry * step
             return PlannedAction(
                 kind="move", ref=b, x=round(nx, 4), y=round(ny, 4),
                 targets_rule=v.get("rule", ""),
-                rationale=(f"沿 {a}->{b} 轴把 {b} 推开 {step:.1f}mm "
+                rationale=(f"从 {a} 把 {b} 推开 {step:.1f}mm"
+                           f"{f' (旋 {90*escalation:.0f}°)' if escalation else ''} "
                            f"以消解 {v.get('rule')} ({a}↔{b} 重叠)"),
             )
         return PlannedAction(kind="noop",
@@ -222,8 +230,9 @@ class PcbAgent:
             return report
 
         current = first
+        escalation = 0           # “越推越坏”时递增: 旋转+加大推出, 跳出局部陷阱
         for i in range(1, max_iters + 1):
-            plan = self.plan(current, i)          # 想
+            plan = self.plan(current, escalation)  # 想
             if plan.kind == "noop":               # 无从下手 → 知止
                 report.cycles.append(Cycle(
                     index=i, before_errors=current.error_count,
@@ -231,14 +240,29 @@ class PcbAgent:
                     improved=False, note="no actionable error"))
                 report.stop_reason = "no_actionable_error"
                 break
+            pre_pos = current.footprints.get(plan.ref)
             self.act(plan)                        # 做
             after = self.perceive()               # 验
+            if after.error_count > current.error_count:
+                # 越推越坏 → 撤销该步, 下回合换方向/加大半径 (贪心单调不增)
+                if pre_pos is not None:
+                    self.dao.move_footprint(plan.ref, pre_pos[0], pre_pos[1],
+                                            save=self.save_each)
+                escalation += 1
+                report.cycles.append(Cycle(
+                    index=i, before_errors=current.error_count,
+                    action=plan.to_dict(), after_errors=current.error_count,
+                    improved=False,
+                    note=(f"reverted (越推越坏 {current.error_count}→{after.error_count}), "
+                          f"下回合旋 {90*escalation:.0f}°")))
+                continue                          # current 不变 (已复位)
             improved = after.error_count < current.error_count   # 悟
             report.cycles.append(Cycle(
                 index=i, before_errors=current.error_count,
                 action=plan.to_dict(), after_errors=after.error_count,
                 improved=improved))
             current = after
+            escalation = 0 if improved else escalation + 1   # 持平也要换方向, 防卡死
             if after.clean:
                 report.stop_reason = "solved"
                 break
@@ -250,90 +274,6 @@ class PcbAgent:
         report.elapsed_seconds = time.time() - t0
         # 收敛后落盘一次 (回合内默认 save_each=False, 只在内存迭代, 末了存一次)
         if report.solved and not self.save_each:
-            try:
-                self.dao.save()
-            except Exception:
-                pass
-        return report
-
-    # ── 优化布局 (贪心最近邻) ─────────────────────────────────────
-    def optimize_placement(self, *, spacing_mm: float = 2.0) -> AgentReport:
-        """Greedy nearest-neighbor placement optimization.
-
-        Rearranges footprints in a grid with minimum spacing,
-        minimizing total board area while maintaining DRC compliance.
-        """
-        t0 = time.time()
-        board_name = str(getattr(self.dao, "_board_path", "") or "board")
-
-        p = self.perceive()
-        report = AgentReport(
-            goal="optimize_placement", board=board_name,
-            initial_errors=p.error_count, final_errors=p.error_count,
-            solved=False,
-        )
-
-        if not p.footprints:
-            report.stop_reason = "no_footprints"
-            report.elapsed_seconds = time.time() - t0
-            return report
-
-        # Get footprint sizes via bbox
-        fps_res = self.dao.list_footprints().result or {}
-        items = fps_res.get("items", [])
-        if not items:
-            report.stop_reason = "no_footprints"
-            report.elapsed_seconds = time.time() - t0
-            return report
-
-        # Sort by area (largest first) for greedy placement
-        sorted_fps = sorted(items, key=lambda i: i.get("width", 5) * i.get("height", 5), reverse=True)
-
-        x_cursor = 100.0
-        y_cursor = 100.0
-        row_height = 0.0
-        max_row_width = 60.0
-        cycle_idx = 0
-
-        for fp_info in sorted_fps:
-            ref = fp_info.get("ref", "")
-            w = fp_info.get("width", 5.0) + spacing_mm
-            h = fp_info.get("height", 5.0) + spacing_mm
-
-            if x_cursor + w > 100.0 + max_row_width:
-                x_cursor = 100.0
-                y_cursor += row_height + spacing_mm
-                row_height = 0.0
-
-            old_x = fp_info.get("x_mm", 0)
-            old_y = fp_info.get("y_mm", 0)
-            new_x = round(x_cursor + w / 2, 2)
-            new_y = round(y_cursor + h / 2, 2)
-
-            if abs(new_x - old_x) > 0.01 or abs(new_y - old_y) > 0.01:
-                cycle_idx += 1
-                plan = PlannedAction(
-                    kind="move", ref=ref, x=new_x, y=new_y,
-                    targets_rule="placement",
-                    rationale=f"Grid placement ({old_x:.1f},{old_y:.1f})->({new_x:.1f},{new_y:.1f})",
-                )
-                self.act(plan)
-                report.cycles.append(Cycle(
-                    index=cycle_idx, before_errors=p.error_count,
-                    action=plan.to_dict(), after_errors=0,
-                    improved=True, note="placement"))
-
-            x_cursor += w
-            row_height = max(row_height, h)
-
-        # Verify DRC after placement
-        after = self.perceive()
-        report.final_errors = after.error_count
-        report.solved = after.clean
-        report.stop_reason = "placement_complete"
-        report.elapsed_seconds = time.time() - t0
-
-        if not self.save_each:
             try:
                 self.dao.save()
             except Exception:
