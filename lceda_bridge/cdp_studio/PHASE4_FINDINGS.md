@@ -221,3 +221,21 @@ Gerber/BOM/贴片坐标全导出。
    scaffold(REST+extapi) → place(7 件) → wire(逃逸+横轨,6 网) → importChanges(自动确认)
    → **auto_board_outline()**(程序化板框) → save → **reload_and_reopen()** → prepare_pcb_nets
    → **autoroute_gui()** → drc_check(True) → export_all(Gerber/BOM/PnP)。
+
+## 十二、声明式 PCB 引擎 + 双 IC 复杂板压测(dao_board.py)
+
+把 build_ne555 的全部实战逻辑**沉淀为通用引擎** `dao_board.py`:给一张声明式电路单
+(`BoardSpec`: parts + nets),`BoardBuilder().build(spec)` 即一键跑完
+scaffold→place→wire→sync→板框→布线→DRC→导出。这是"用最小操作逻辑覆盖最大功能"的
+归一:未来任意 PCB 只需写电路单,不再逐板写脚本。
+
+**首个双 IC 复杂板压测**(`build_chaser.py`,555 时钟 + CD4017 十进制计数 + 4 路跑马灯 LED):
+- **14 器件 / 13 网**(NE555 8 脚 + CD4017 **16 脚** + 6 电阻 + 2 电容 + 4 LED),GND 网 10 成员。
+- 全程序化一键跑通:place 14/14 无 ghost、引脚数校验通过(CD4017 16 脚命中);wire 93 段;
+  sync **13 网全部传播、missing=[]**;auto_board_outline 程序化板框;reload→原生自动布线
+  **122 铜线 + 10 过孔**;**DRC 通过**;Gerber(15239B)/BOM/贴片坐标全导出。
+- 引擎新增 `BoardSpec.pin_count_hint()` + place 阶段**引脚数粗校验**(实际引脚 < net 引用到的
+  最大引脚号即告警),把"选错排阻/封装"这类坑在放件阶段就暴露,不必等到布线才发现。
+
+结论:声明式引擎在双 IC、十余网规模上稳定,布线引擎对更密的飞线(122 实铜)依旧
+一次 Run 收敛。下一步可继续上更大规模(更多 IC/排针/电源地标 createNetPort)压测并演化。
