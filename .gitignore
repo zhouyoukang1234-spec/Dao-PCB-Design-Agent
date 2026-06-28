@@ -13,3 +13,9 @@ lceda_bridge/cdp_studio/exports/
 .dao/
 *.session.json
 jlc_session.json
+
+# JLC EDA 逆向 scratch / 大文件(勿提交)
+lceda_bridge/cdp_studio/_bundle/
+lceda_bridge/cdp_studio/_blinker*
+lceda_bridge/cdp_studio/_inject_*.txt
+lceda_bridge/cdp_studio/*.epro2

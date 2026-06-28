@@ -3,6 +3,52 @@
 > 道法自然 · 在实践中发现边界,把边界与根因如实记下,作为下一轮演化的锚。
 > 本轮(会话 2c)在「修 net 融合」的过程中,逐层挖到了**原理图侧合成鼠标操作非确定性**这一更深的根。
 
+## ★★★★ 会话 2f 终局闭环:底层 canvas 直写**实证落库持久化**(上轮"最后核心模块"根治)
+
+> 承接 2e 的"setCanvas 灌库"假说,本轮**真正打通并实证**:私有 worker 总线已接通、读/写 rpc 入参
+> 已校准、`setCanvas` 写入后经"保存 + 服务器回读 .epro2"确认**持久化落库**。确定性建板的底层入口由此从
+> 假说变为可复现事实。代码沉淀:`canvas_lowlevel.py`。
+
+**1. 私有工程 worker 总线的真实位置(2e 遗留的"全局总线打不到"缺口已补上):**
+```
+workerBus = Bn(`/${window._TAB_ID_}/project/${projectUuid}`)
+function Bn(e){ return self[e] = self[e] || new BroadcastChannelMessageBus(e) }
+⇒ 总线对象 = self["/<TAB_ID>/project/<projectUuid>"]   (须先 open_document 令 worker 实例化)
+```
+其 `.rpcCall` 直达 `/mgr/projectWorker/*`(377 topic)。`window.gVars.worker` 是包装、打不到,**必须用 self[key]**。
+
+**2. worker 端 rpc 真实入参(project-worker.js 反出 + 页内实证校准):**
+| topic | 入参 | 返回 | 判定 |
+|---|---|---|---|
+| `/mgr/projectWorker/sheet/getCanvas` | `{doc:[uuid]}` | `{success,data:{...元数据}}` | ✅ 读 |
+| `/mgr/projectWorker/sheet/getAllArrData` | `<schematicUuid>`(裸串) | 该 schematic 下全部 sheet 记录 | ✅ 读(按 `a.schematic===s` 过滤,传 sheetUuid 得 `[]`) |
+| `/mgr/projectWorker/sheet/extractCanvas` | `<uuid>`(裸串) | `{dataSet:{devices,symbols,footprints,blobs},parentIds}` | ✅ 读 |
+| `/mgr/projectWorker/sheet/buildString` | `{data:{uuid,...},keepUUID:true}` | `{result:{uuid,dataStr,updateTime}}` | ✅ 序列化(只序列化 data 给定内容,不读 worker 已载图元) |
+| `/mgr/projectWorker/sheet/setCanvas` | **`{uuid,canvas}`** | **`{success:true}`** | ✅✅ **底层直写入口** |
+
+pcb/symbol/footprint/device 各 entity 同构(把 `sheet` 换成对应名)。
+踩坑:`setCanvas` 传 `{doc,dataStr,...}`(transform 形参)→ `数据不存在`;**真正生效的是 `{uuid,canvas}`**
+(与 pro-mgr.js 主线程调用签名 `workerBus.rpcCall(K.sheet.setCanvas,{uuid:t,canvas:s})` 一致)。
+
+**3. canvas/dataStr 记录块格式 = .epru 同源:** 逐行 `{header}||{payload}|`,DOCHEAD 切子文档。
+取真实样本:`sys_FileManager.getProjectFileByProjectUuid(uuid)` → `.epro2`(zip,页内 `arrayBuffer→btoa`
+过 CDP 取回)解包 → `<title>.epru`。实测一块真实 Blinker 板:SCH_PAGE 段 = META×1 + ATTR×68 + COMPONENT×3;
+PCB 段 153 条;SYMBOL/DEVICE/FOOTPRINT 各为内联库子文档(自包含,无需库后端)。
+
+**4. ★ 决定性实证(写→存→服务器回读):**
+```
+空 sheet(0 记录) ──setCanvas{uuid, canvas=真实SCH_PAGE记录块}──▶ {success:true}
+              ──sch_Document.save──▶ true
+              ──重新 getProjectFileByProjectUuid 下载 .epro2 并解包──▶
+              该 sheet SCH_PAGE = META×1 + ATTR×102 + COMPONENT×4 + WIRE×1 + LINE×1
+```
+即:**底层 setCanvas 写入 → 落工程数据库 → 经保存 + 服务器往返后持久化**。全程零 GUI、零合成鼠标、
+零库后端拉取。"确定性建板=构造 canvas 直接灌库"由假说变为可复现事实。
+
+**下一步(自包含整板灌库):** 一张可渲染的原理图 = SCH_PAGE(COMPONENT 引用) + 其引用的 SYMBOL/DEVICE
+子文档。整板自包含灌库 = 对每个子文档按 entity 调对应 `setCanvas`/`createData`(symbol/device/footprint),
+再灌 SCH_PAGE 与 PCB。本轮已验证单文档通路,多文档装配为下一轮工程化任务。
+
 ## ★★★ 会话 2e 根本突破:从底层字典直驱(弃 GUI/弃 EXTAPI 包装,直达工程数据层)
 
 > 用户纠偏(关键):**走 GUI 操作嘉立创是表层、是逻辑错误;必须从底层字典、底层突破一切,
