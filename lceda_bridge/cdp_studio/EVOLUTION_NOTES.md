@@ -629,3 +629,41 @@ import **直接引用** `window.__epru`(`datas.dataStr:window.__epru`)→ 任何
 
 → 阴阳一循环:反向逆推暴露缺陷 → 正向修复 → 真实成品(3MB + 169MB)复验 gaps 归零。
 沉淀:`reverse_intent.py`、报告 `_cmp/intent_{pager,x86}.json`、`reverse_analyze.classify_net` 增强。
+
+---
+
+## 会话 2i:零登录冷启动闭环 —— 确定性账号登录(`op_pwd_robust`)+ 全链路活体复验
+
+本源锚定再校准:**与嘉立创EDA融为一体**的前提是"能自登录"。本轮把横亘在冷启动口
+的登录关一次性打穿,并在活体编辑器上把"建板全链路"与"底层工程库直读"双路同时复验,
+确证 2a–2h 的成果在新会话仍可一键复现。
+
+### 关键根因(实测):GUI 逐字输入吞掉密码前缀 → 误判"密码错"
+- `computer.type` 合成键入向 passport.jlc.com 受控密码框打字,**前 3 字符 `WSY` 被吞**,
+  实际只进了 `057066wsy`(9 位)→ 服务端回"账号或密码不正确"。两次失败皆此因,非凭据错。
+- 反者道之动:弃表层合成键入,改 **CDP 注入 React 受控组件**——原生 value setter +
+  派发 `input`/`change` 事件(`jlc_login._set_input`),一次性灌入全量(`plen:12`),登录即过。
+
+### 冷启动健壮化(已固化到 `cold_start.py` / `jlc_login.py`)
+此前 `cold_start` 的账号登录步只 `sleep 2` 就填表 → passport SPA 未渲染出账号 tab/输入框
+→ 命中 `NO_INPUT`。新增轮询就绪:
+- `jlc_login._passport_ws_wait()`:轮询等 passport 页出现且 WS 可连(容忍导航瞬断)。
+- `jlc_login._wait_account_inputs()`:循环点「账号登录」tab 并等 `input[type=password]` 就位。
+- `jlc_login.op_pwd_robust()`:就绪→确定性注入→**回读密码长度校验全量**(不足则重灌一次)→提交。
+- `cold_start()` 第 4 步改调 `op_pwd_robust`,产出含 `fill:{ok,plen,want}` 凭据可观测。
+- 登录成功即 `jlc_session.save`(本机 30 cookies + 4 localStorage)→ 下次走 `restore` 零登录。
+
+### 活体双路复验(用户 aiotvr · V3.2.148)
+- **全链路(EXTAPI 层 `build_blinker.py`)**:scaffold→放件 U1/R1/R2/C1(4/4 落盘)→位号→存盘→
+  连线成网→`importChanges`+Apply→PCB 同步 4 器件→板框→存盘→DRC(**0 Fatal / 0 Error**)→
+  导出 Gerber(8049B)/BOM.xlsx(6963B)/PNP(7134B)/Netlist.enet(7016B),全部真字节落盘。
+- **底层工程库直读(`/PrjDB` worker 总线,绕过 EXTAPI/GUI)**:`/PrjDB/pcb/getAllPrimaryKeys`
+  与 `/PrjDB/sheet/getAllArrDatas` 实读到刚建工程(`project_uuid` 即 blinker 工程、`modifier.nickname=aiotvr`)
+  → 证 2e/2f 的私有总线直驱在新会话依旧在线、读的是当下活体库。
+
+### 诚实的既存局限(下一步演化,沿用 2g 结论)
+- 合成鼠标放件 + connect 串接致**同网竖直段在公共顶点融合**(DRC Warn:Wire has multiple net
+  names: VCC、RA…)。根治 = 确定性放件(逆 `sch_PrimitiveComponent.create` schema)+ 每网专属
+  lane(夹在图纸内)。本轮未改动该路径,仅复验全链路仍走通且产出可制造件;留作 2j。
+
+沉淀:`cold_start.py`(健壮账号登录编排)、`jlc_login.py`(`op_pwd_robust` + 就绪轮询)。

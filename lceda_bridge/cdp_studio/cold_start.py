@@ -113,9 +113,9 @@ def cold_start():
     if phone and pwd:
         try:
             jlc_login.op_open(); time.sleep(2)
-            jlc_login.op_tab("账号"); time.sleep(1)
-            jlc_login.op_pwd(phone, pwd); time.sleep(4)
-            steps.append({"after": "password_login", "submitted": True})
+            # 健壮登录:轮询等 passport 页 + 账号tab 就绪后再确定性注入(防 NO_INPUT/吞值)
+            res = jlc_login.op_pwd_robust(phone, pwd); time.sleep(4)
+            steps.append({"after": "password_login", "submitted": True, "fill": res})
         except Exception as ex:
             steps.append({"after": "password_login", "err": str(ex)})
         st = login_state(); steps.append({"after": "password_check", **st})

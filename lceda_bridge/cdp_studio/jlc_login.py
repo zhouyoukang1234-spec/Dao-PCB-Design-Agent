@@ -127,6 +127,66 @@ def op_pwd(acct, pw):
     _submit(ws)
 
 
+def _passport_ws_wait(timeout=25):
+    """轮询等待 passport 登录页出现并可连;返回 ws 或抛错。"""
+    end = time.time() + timeout
+    last = None
+    while time.time() < end:
+        try:
+            pg = [t for t in _pages() if "passport.jlc.com" in (t.get("url") or "")]
+            if pg:
+                ws = d.CDPSession(pg[0]["webSocketDebuggerUrl"])
+                ws.cmd("Runtime.enable", {}, timeout=3)
+                return ws
+        except Exception as ex:  # 页面正在导航, WS 可能瞬断
+            last = ex
+        time.sleep(1)
+    raise RuntimeError("passport 登录页未在 %ds 内就绪 (%s)" % (timeout, last))
+
+
+def _wait_account_inputs(ws, timeout=25):
+    """切到「账号登录」tab 并等用户名+密码框渲染出来。返回 True/False。
+
+    根因(会话实证):passport 页 SPA 渲染有延迟,过早填充会命中 NO_INPUT;
+    必须先点 tab 再轮询 input[type=password] 就位。
+    """
+    end = time.time() + timeout
+    click_tab = (r'''(function(){var t=[].slice.call(document.querySelectorAll('button,li,span,div,a'))'''
+                 r'''.filter(function(e){return e.children.length===0 && (e.innerText||'').trim()==='账号登录';});'''
+                 r'''if(t.length){t[0].click();return 1;}return 0;})()''')
+    probe = (r'''(function(){var p=document.querySelector('input[type=password]');'''
+             r'''var n=document.querySelectorAll('input').length;'''
+             r'''return (p&&n>=2)?'READY':'WAIT';})()''')
+    while time.time() < end:
+        d.evaluate(ws, click_tab, await_promise=False)
+        v, _e = d.evaluate(ws, probe, await_promise=False)
+        if v == "READY":
+            return True
+        time.sleep(1)
+    return False
+
+
+def op_pwd_robust(acct, pw, timeout=25):
+    """健壮账号密码登录:等页就绪→切账号tab→注入→校验全量→提交。返回 dict。"""
+    ws = _passport_ws_wait(timeout)
+    if not _wait_account_inputs(ws, timeout):
+        return {"ok": False, "reason": "account_inputs_not_ready"}
+    mi = (r'''(function(){var ins=[].slice.call(document.querySelectorAll('input'))'''
+          r'''.filter(function(e){return e.type!=='hidden'&&e.type!=='checkbox'&&e.type!=='password';});return ins[0];})()''')
+    mp = r'''(function(){return document.querySelector('input[type=password]');})()'''
+    a = _set_input(ws, mi, acct)
+    _set_input(ws, mp, pw)
+    plen_js = r'''(function(){var p=document.querySelector('input[type=password]');return p?String(p.value.length):'-1';})()'''
+    vlen, _e = d.evaluate(ws, plen_js, await_promise=False)
+    if str(vlen) != str(len(pw)):  # 一次重试, 防受控组件吞值
+        _set_input(ws, mp, pw)
+        vlen, _e = d.evaluate(ws, plen_js, await_promise=False)
+    ok_full = str(vlen) == str(len(pw))
+    time.sleep(0.3)
+    _submit(ws)
+    return {"ok": ok_full, "acct": a, "plen": vlen, "want": len(pw)}
+
+
 def _submit(ws):
     js = (r'''(function(){var b=[].slice.call(document.querySelectorAll('button,a,span,div'))'''
           r'''.filter(function(e){return e.children.length===0 && /^(登 ?录|登录|立即登录|登录\/注册)$/.test((e.innerText||'').trim());});'''
