@@ -3,6 +3,39 @@
 > 道法自然 · 在实践中发现边界,把边界与根因如实记下,作为下一轮演化的锚。
 > 本轮(会话 2c)在「修 net 融合」的过程中,逐层挖到了**原理图侧合成鼠标操作非确定性**这一更深的根。
 
+## ★★★ 会话 2e 根本突破:从底层字典直驱(弃 GUI/弃 EXTAPI 包装,直达工程数据层)
+
+> 用户纠偏(关键):**走 GUI 操作嘉立创是表层、是逻辑错误;必须从底层字典、底层突破一切,
+> 官方没留接口也要逆流自建接口。** 据此把"确定性放件=真实输入标定"也判为表层弃用,
+> 转向逆出编辑器内核的数据层。本节是全项目最有价值的底层资产。
+
+**链条(全部 bundle 反编 + 页内实证):**
+1. `.epro2` 解包 = zip{`project2.json`, `<title>.epru`, `IMAGE/`}。`.epru` = 逐行 `{header}||{payload}|`
+   的**多文档记录流**(DOCHEAD 切子文档:FOOTPRINT/SYMBOL/DEVICE/BOARD/SCH/SCH_PAGE/PCB/CONFIG/PANEL/BLOB)。
+   图元记录:`PART`(原理图器件)/`COMPONENT`(PCB封装实例)/`PIN`/`NET`/`PAD_NET`/`PRIMITIVE`/`POLY`/`PAD`/`LINE`…
+   ★ **库符号/封装/器件内联嵌入工程** → 自包含设计无需库后端拉取(这正是 EXTAPI `create` 卡死的真因)。
+2. 编辑器内核数据层 = 两套 rpc topic 命名空间(从 `pro-mgr.js` / `ws-service.js` bundle 反出):
+   - **`/PrjDB/<entity>/<op>`**(273 个,见 `_prjdb_topics.txt`)= 持久化工程数据库。
+     **主线程内** `z(topic,handler)` 注册,handler 委派给 `J(r)=Ja.getInstance().get(projectId)` 的工程DB对象。
+     全 CRUD:schematic/sheet/pcb/board/device/symbol/footprint/component(Group)/copper/font/attr/blob/panel
+     × getData/addData/updateData/delData/createData/batchDelete/setCanvas/getCanvas/bindSymbol/bindFootprint…
+   - **`/mgr/projectWorker/<entity>/<op>`**(377 个,见 `_mgr_projectworker_topics.txt`)= 活动文档 worker
+     (`this.project.workerBus=Bn`,私有实例,全局总线打不到;**EXTAPI 即其薄包装**)。含 `buildString`/`extractCanvas`。
+3. **关键实证**:`ye.messageBus === window._MSG_BUS_`(全局总线)。`/PrjDB/*` 读类经它**直接可调**:
+   `/PrjDB/pcb/getAllPrimaryKeys`→`["2623a85edf12f117"]`;`/PrjDB/schematic/getAllArrDatas`→sch 文档;
+   `/PrjDB/sheet/getAllArrDatas`→sheet `f293bb407eb959c5`;`/PrjDB/pcb/getData [uuid]`→PCB 文档元数据。
+4. **底层写签名(bundle 实证)**:`z(te.SHEET.SET_CANVAS, async(t,s,r)=>(await J(r).sheet.setCanvas(t,s)).success)`
+   ⇒ `_MSG_BUS_.rpcCall("/PrjDB/sheet/setCanvas",[sheetUuid, canvasData, projectId?])`,
+   `r` 缺省 `ye.currentProject.projectId`。同理 pcb/symbol/footprint/device 各有 setCanvas/createData/addData。
+
+**坑(实证)**:页内 `awaitPromise` 等一个无回执的 rpc 会**冻结整条 CDP**(后续 evaluate 全 timeout,需整页 reload 复位)。
+⇒ 必须 **fire-and-poll**:`.then` 写 `window.__rr`,再分轮询读。已固化进 `prjdb_lowlevel.py::rpc()`。
+`getCanvas` 会委派活动 worker,未就绪时挂起 → 读图元优先用 `buildString`/`.epru` 格式或确保工程 ready。
+
+**沉淀**:`prjdb_lowlevel.py`(非阻塞 rpc + topic 常量)、`_prjdb_topics.txt`、`_mgr_projectworker_topics.txt`、
+`_epro_dump/`(.epru 格式样本)。**意义**:确定性建板的真正入口 = 构造图元 canvas 直接 `setCanvas` 灌入工程数据库,
+不经 GUI、不经库后端、不经脆弱合成鼠标 —— 一次构造整张设计字典直接落库。反者道之动,从底层突破一切。
+
 ## ★★ 会话 2d 终局突破:确定性放件 = 真实输入自标定(根治非确定·已实证)
 
 > 这是本会话最有价值的可达成果,直接根治了前几轮反复卡住的"合成鼠标放件非确定"瓶颈。
