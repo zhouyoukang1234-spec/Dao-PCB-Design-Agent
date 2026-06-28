@@ -321,6 +321,26 @@ def test_build_supports_six_copper_layers(tmp_path):
 
 
 @needs_script
+def test_build_places_bottom_side_footprint(tmp_path):
+    """Rebuilding a board with explicit placement + a bottom-side part must not
+    crash: flipping a footprint before it belongs to the board segfaults pcbnew
+    (the defect reverse-eng round-trip exposed on boards with bottom parts)."""
+    import pcbnew
+
+    live = LiveKiCad(_KENV)
+    spec = dna.make("voltage_divider")
+    for i, fp in enumerate(spec["footprints"]):
+        fp["x"], fp["y"] = 40.0 + 10 * i, 40.0      # force explicit-placement path
+    spec["footprints"][0]["side"] = "bottom"
+    pcb = tmp_path / "bottom.kicad_pcb"
+    assert live.build_board(spec, pcb)["ok"]
+    board = pcbnew.LoadBoard(str(pcb))
+    flipped = {f.GetReference(): f.IsFlipped() for f in board.GetFootprints()}
+    assert flipped[spec["footprints"][0]["ref"]] is True
+    assert sum(flipped.values()) == 1
+
+
+@needs_script
 def test_summary_roundtrip(tmp_path):
     live = LiveKiCad(_KENV)
     spec = dna.make("voltage_divider")

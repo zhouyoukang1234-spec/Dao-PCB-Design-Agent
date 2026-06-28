@@ -46,14 +46,23 @@ def extract(pcb_path: str | Path) -> dict[str, Any]:
         fpid = fp.GetFPIDAsString()
         lib, name = (fpid.split(":", 1) if ":" in fpid else ("", fpid))
         value = fp.GetValue()
-        footprints.append({"ref": ref, "lib": lib, "fp": name, "value": value})
-        bom_groups[(value, fpid)].append(ref)
         pos = fp.GetPosition()
+        flipped = fp.IsFlipped()
+        # fold placement straight into the footprint spec — a rebuild then
+        # reuses the recovered coordinates instead of re-running the O(n²)
+        # auto-placer (which does not scale to 1000+ part industrial boards).
+        footprints.append({
+            "ref": ref, "lib": lib, "fp": name, "value": value,
+            "x": _mm(pos.x), "y": _mm(pos.y),
+            "rot": round(fp.GetOrientationDegrees(), 2),
+            "side": "bottom" if flipped else "top",
+        })
+        bom_groups[(value, fpid)].append(ref)
         placement.append({
             "ref": ref,
             "x": _mm(pos.x), "y": _mm(pos.y),
             "rot": round(fp.GetOrientationDegrees(), 2),
-            "layer": "B.Cu" if fp.IsFlipped() else "F.Cu",
+            "layer": "B.Cu" if flipped else "F.Cu",
         })
         for pad in fp.Pads():
             net = pad.GetNetname()
