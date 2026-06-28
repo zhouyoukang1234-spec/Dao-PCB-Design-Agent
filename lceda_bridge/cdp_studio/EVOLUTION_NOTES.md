@@ -393,3 +393,47 @@ project-worker.js:
 ### 道:为何这条成立而 EXTAPI 不成立
 worker 总线(BroadcastChannel)承载结构化字符串无损;`.epru` 即 dataStr,过 worker 不经 JSON-File 丢失。
 **反者道之动**——从成品(.epru)反向一次性灌库,比"逐元素合成"更确定、更高效;无为(不放一颗件)而无不为(整板自现)。
+
+---
+
+## ★★★★★★ 会话 2h:与**社区底层融为一体** —— 拉取并逆向社区超复杂成品
+
+用户升维:嘉立创本身是巨大资源库(立创开源广场 oshwhub.com),应整合社区一切底层资源,
+从大佬的超复杂成品逐层反向推演。本会话把社区与我方底层管线打通并实证。
+
+### 社区资源底层路径(逆向所得)
+- 开源广场在 **oshwhub.com**(Next.js,与 pro.lceda.cn 跨域;直 fetch 被 CORS 挡)。
+  ⇒ 经浏览器在 oshwhub **同源**调其私有 API:
+    `GET /api/project/{uuid}`            工程元数据(title/attachments/origin/members…)
+    `GET /api/project/{uuid}/documents`  文档信息
+    页面「在编辑器中打开」锚点 = `https://pro.lceda.cn/editor#id=<oshwhubUuid>,tab=*<docUuid>`
+- ★ **关键突破:`sys_FileManager.getProjectFileByProjectUuid(<oshwhubUuid>)` 对“非我所有”的
+  社区开源工程**直接返回完整 `.epro2`**(公有工程不受所有权门控)。
+  ⇒ 任意社区成品的全部设计数据(原理图/PCB/器件/网表/层叠)皆可底层取回。
+- 在 Pro 编辑器中打开社区工程须 **整页 reload**(仅改 location.hash 不会切换工程,SPA 不重载)。
+
+### 实证:逆向「【全网首发】X86电脑主板」(oshwhub b77840665e2e48148c1b04ce84b5f7e7)
+立创开源广场 11.6w 浏览 / 822 赞,作者 liuxiaotao。取回 `.epro2` = **22.4 MB**(.epru 解包 **177 MB**)。
+`reverse_analyze.py` 反读出完整设计情报:
+```
+子文档: FOOTPRINT×1535 SYMBOL×203 DEVICE×200 SCH×1 SCH_PAGE×36 PCB×1 BOARD×1
+PCB:    器件×1066  命名网络×1644  焊盘×17506  过孔×4554  走线×2780  物理层栈记录×17
+网络分类: USB×111 power×61 display/HDMI/VGA×56 DDR/memory×47 PCIe×44 clock×31 ground×6
+功能块(partId): CPU×16 PCH/南桥×14 DDR×8 USB×3 SATA×2 HDMI×1
+位号: C×814 R×782 U×248 Q×142 … (真·PC 主板 BOM)
+封装: R0402×390 C0402×287 C0603×207 …
+```
+⇒ 从一块成品 `.epro2`,**反读出**层叠/网络拓扑/电源树/高速总线(DDR/PCIe/USB/HDMI/VGA)/
+   功能分区/BOM —— "反者道之动",不臆造,从落库记录里复现设计者全部意图。
+
+### NET/记录真实 schema(逆向修正,前会话猜测有误)
+- **NET 名在 `head.id` = `["NET","<name>"]`**,不在 payload(payload 只有 netType/differentialName…)。
+- COMPONENT.payload: `{partId, x, y, rotation, isMirror, attrs}`;位号/封装在 **ATTR**(key=Designator/Footprint)。
+- DOCHEAD **无 name/title**(只有 docType/uuid/version/user);文档名存服务端结构,离线不可得。
+- `project2.json`(zip 内)= 工程元数据(title/introduction/tags),非文档结构。
+
+### 暴露的系统边界(待逐项突破)
+1. **超大工程灌库**:177 MB .epru 经单次 worker import 透传风险高(浏览器/worker 内存、CDP 帧)。
+   → 边界:大工程克隆需分文档/分段流式注入,或走服务端 copyProject(`/api/client/copyProject` 仅桌面端)/
+     "Save Project to Cloud" 命令(SaveAs-Remote)在线复制,免数据透传。
+2. 文档功能名离线缺失 → 功能分区现靠 net/partId 启发式;后续可经在线结构 API 取真实页名。
