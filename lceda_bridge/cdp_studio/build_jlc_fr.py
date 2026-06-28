@@ -100,6 +100,25 @@ def main():
         rep["drc_final"] = f.drc_check(timeout=120)
     except Exception as e:
         rep["drc_final"] = "ERR:" + str(e)[:50]
+    # 内联巡检 layer-11 几何(在已加载上下文,可靠):看板框层到底有几条 Polyline / 几条 Line,
+    # 定位「板框→TH 焊盘」违规究竟对应哪种图元(第二十章 e0 之谜)。
+    try:
+        ply = f.eda.call("pcb_PrimitivePolyline.getAllPrimitiveId", timeout=15) or []
+        lns = f.eda.call("pcb_PrimitiveLine.getAllPrimitiveId", timeout=15) or []
+        l11 = []
+        for i in lns:
+            g = f.eda.call("pcb_PrimitiveLine.get", i, timeout=6) or {}
+            if g.get("layer") in (11, "11"):
+                l11.append({"id": i, "x1": g.get("x1"), "y1": g.get("y1"),
+                            "x2": g.get("x2"), "y2": g.get("y2"), "net": g.get("net")})
+        rep["layer11_audit"] = {"polylines": len(ply), "lines_on_11": len(l11), "line_detail": l11[:8]}
+    except Exception as e:
+        rep["layer11_audit"] = "ERR:" + str(e)[:60]
+    # DRC 逐条违规明细:API 取不到(pcb_Drc 只有裸 bool),改读 **GUI 面板**(第二十二章)。
+    try:
+        rep["drc_violations"] = f.read_drc_violations(run_check=True)
+    except Exception as e:
+        rep["drc_violations"] = "ERR:" + str(e)[:60]
     out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), spec.name + "_JLC_fab")
     try:
         exp = f.export_all(out_dir, base=spec.name + "_JLC")

@@ -385,6 +385,12 @@ Or=class{constructor(net, layer, complexPolygon, fillMethod="solid",
 
 ## 第二十章 · 高密度双 IC 压测板暴露的真相:DRC 失败≠布线/密度,而是连接器封装自带板框层图元(本会话)
 
+> ⚠️ **更正(见第二十二章)**:本章 20.3 把密板 DRC False 归因为「板框→J3 插孔 0.9mil 摆放偶发」。
+> 那是 **margin=60 旧板**当时面板里的真实一条;但 margin 提到 100 后该条已消除。**之后仍 False 的真因
+> 本章未再读面板核实**——第二十二章用程序化「读 DRC 面板」证实:升 margin 后的密板**根本没有板框-焊盘
+> 违规**,真实拦路是「XTAL1 / DSIG_N 两网未布通(连接错误)+ 差分对长度差 1256.7mil>10mil 容差」。
+> 本章「板框几何/杂散 e0」推断对升 margin 后的板**不成立**,以第二十二章为准。
+
 ### 20.1 压测板与现象
 `build_dense`:**迄今最密**——ATmega328(TQFP-32 0.8mm)+ CD4017(DIP-16)同板,MCU 经 GPIO 驱
 CD4017 跑 4 路 LED 环,外加一对差分信号(DSIG_P/N 引出 J3)。**17 器件 / 16 网**。一键 build:
@@ -457,11 +463,66 @@ JLC 最小线宽 3.5mil/间距 6mil/过孔 0.3mm 钻,取 8mil 间距给布线落
   Gerber 13KB。生成的 `Dao_NE555_JLC_JLC.dsn` 审计:`(clear 8.0)×3 + (clearance 8.0)×7 +
   circle 24.0×2 + rule(width 10.0)`,无任何 4.02 残留。**JLC 规则路径产出可送厂、DRC 通过的板。**
 - **密板端到端**:同链路跑通(place 17/missing=[]/diff DIFF:true/Freerouting 157 铜线/双面敷铜/
-  Gerber 32KB),但 DRC 仍 False——与第二十章一致,拦路是「板框→J3 插孔」摆放偶发,**与 clearance/
-  布线无关**,故 JLC 规则不针对它;NE555 已隔离证明规则路径本身正确。
+  Gerber 32KB),但 DRC 仍 False。
+  > ⚠️ **更正**:此处当时写「与第二十章一致,拦路是板框→J3 摆放偶发」——这是**未再读面板的臆测**。
+  > 第二十二章程序化读面板证实:升 margin 后密板的真实违规是「XTAL1/DSIG_N 两网未布通 + 差分对长度差」,
+  > **没有任何板框-焊盘违规**。JLC 规则路径仍由 NE555 端到端 DRC True 独立证明正确(此点不变)。
 
 ### 21.4 沉淀
 1. **规则对齐要改全 DSN,不能只改 structure**:网类段 clearance 优先级更高,是真正生效的那一份;
    只抬 structure 是"看着对、实际没生效"的假对齐。
 2. **盲点要用文件审计逐项证实**:`_apply_jlc_rules` 返回改动计数 + 改后全文搜残留值,可断言无遗漏。
 3. **验证要选无混淆的板**:密板有板框偶发会掩盖规则效果,用宽松 NE555 隔离才证得"规则路径→DRC 通过"。
+
+## 第二十二章 · DRC 违规明细只能读 GUI 面板:程序化「读面板」根治"靠几何猜"的盲诊(本会话)
+
+### 22.1 起因:第二十/二十一章的密板结论是**没读面板的臆测**
+第二十章把密板 DRC False 归因为「板框→J3 焊盘 0.9mil 摆放偶发」,第二十一章 21.3 又直接沿用
+「与第二十章一致」。本会话回头**程序化逐条核实**,发现这两处结论对**升 margin 后的密板不成立**。
+
+### 22.2 硬验证 ① · `pcb_Drc` 命名空间**没有任何取违规明细的接口**
+枚举 `_EXTAPI_ROOT_.pcb_Drc` 原型 + 自有属性(46 个方法),与违规相关的只有:
+`check()`、`getRealTimeDrcStatus()`、`startRealTimeDrc()`、`stopRealTimeDrc()`——其余全是规则配置
+(getNetRules/overwriteNetRules/createNetClass/createDifferentialPair…)。**实测**:
+- `check()` → 返回**裸 bool**(`false`),无明细;
+- `startRealTimeDrc()` 等 6s 后 `getRealTimeDrcStatus()` → 也只返回**裸 bool**(`false`);
+- `_EXTAPI_ROOT_` 根下匹配 `/drc|error|mark|violat|rule/i` 的命名空间只有 `["pcb_Drc","sch_Drc"]`,
+  **没有** `pcb_PrimitiveDrcError` 之类可枚举的违规图元。
+
+**结论(真集成边界)**:嘉立创 EXTAPI **不暴露任何 DRC 违规明细**,只给"过/不过"一个布尔。
+要拿到"哪条违规、什么类型、哪两个对象、哪个网、哪一层、说明"——**唯一真相源是 GUI 的 DRC 结果面板**。
+这正是第二十/二十一章会猜错的根因:只看到 `drc=false` 这个 bool,没去读面板,就脑补了一个板框故事。
+
+### 22.3 硬验证 ② · 程序化「读 DRC 面板」拿到密板真实违规
+新增 `Flow.read_drc_violations(run_check=True)`:派发内置「Check DRC」算完 → 直接抓 DRC 结果表
+`<table tbody tr>` 的 DOM(按关键词 `Connection Error|Differential Pair|Clearance|disconnected|
+tolerance|…` 过滤掉器件库等其它表)→ 解析成结构化行。**对升 margin=100 的密板实测,5 条违规全部读回**:
+
+| # | 类型 | 对象 | 网络 | 说明 |
+|---|---|---|---|---|
+| 1 | Connection Error | TH Pad: J3_2 | DSIG_N | 与同网其它对象断开 |
+| 2 | Connection Error | SMD Pad: U1_1 | DSIG_N | 与同网其它对象断开 |
+| 3 | Connection Error | SMD Pad: C1_1 | XTAL1 | 与同网其它对象断开 |
+| 4 | Connection Error | SMD Pad: U1_7 | XTAL1 | 与同网其它对象断开 |
+| 5 | Differential Pair Error | Track DSIG_P ↔ Track DSIG_N | differentialPair | 长度差 1256.7mil,应 ≤10mil |
+
+**没有任何「Board Outline to TH Pad」违规**——第二十章的板框论被实测证伪。真实拦路是两件事:
+1. **Freerouting 把 XTAL1、DSIG_N 两网漏布**(各 2 焊盘成断网):Freerouting 对**差分对网**(DSIG_N)
+   与**晶振紧邻网**(XTAL1,C1 负载电容贴 Y1/U1)有时不能完成连通,留下断点——这是 Freerouting 在
+   高约束/紧间距下的真实局限,**157 条铜线≠全连通**(此前"0 鼠线"是别次/别后端,不可跨板照搬)。
+2. **差分对长度不匹配**:DSIG_P 与 DSIG_N 长度差 1256.7mil,远超嘉立创差分规则默认 10mil 容差。
+   Freerouting **不做等长调节(蛇形绕等)**,故任何差分对经 Freerouting 出来基本都过不了长度匹配——
+   这是外部布线器的固有边界。
+
+### 22.4 沉淀(道)
+1. **bool 不是真相,面板才是**:`drc_check()` 只回过/不过;判因/修复必须 `read_drc_violations()` 读面板。
+   严禁"看到 false 就脑补原因"——第二十/二十一两章正是栽在这。**发现所有问题的前提是先能看见问题。**
+2. **API 取不到的,就用 GUI DOM 抓**:EXTAPI 不给 DRC 明细 → 直接 querySelector DRC 结果表,
+   关键词过滤定位,解析成结构化清单。把"只有人眼能看的面板"变成"程序能读的清单"。
+3. **跨板别照搬结论**:"0 鼠线全连通""仅板框 2 条"都是某一具体板/某一后端的状态,换板/换布线器即变;
+   每块板都要**当场读面板**复核。
+4. **已识别、待修的真边界(下一步)**:
+   (a) **连通补全**——Freerouting 漏布的网,布完用嘉立创内置单网布线/自动布线**补完**(双后端协同:
+       Freerouting 跑量 + 内置收尾);
+   (b) **差分等长**——Freerouting 不调长度,需差分容差放宽(低速 CAN 可接受)或引入等长蛇形;
+       两者都靠 `read_drc_violations()` 复核闭环。

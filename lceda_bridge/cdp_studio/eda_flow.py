@@ -316,7 +316,27 @@ class Flow:
             raise FlowError("board_outline_rect: " + str(o.get("err") or o))
         return {"id": o.get("id"), "layer": o.get("layer")}
 
-    def auto_board_outline(self, margin=100):
+    def purge_board_outlines(self):
+        """删除画新板框前**已存在的所有 layer-11 板框 Polyline**(防杂散/重复板框)。
+
+        第二十章密板暴露:某次自动摆放下板上会出现一段贴着 TH 焊盘的杂散 board-outline 几何
+        (`Board Outline:e0`),触发「板框→插孔 <11.8mil」DRC 违规,且与布线/密度无关。根因防御:
+        在 `auto_board_outline` 真正画矩形板框之前,先把**板框层(layer 11)上已有的 Polyline 全删**,
+        保证最终板上**只有我们这一条干净矩形板框**,杜绝任何残留/二次板框-焊盘间距偶发。
+        返回删除条数。"""
+        pids = self.eda.call("pcb_PrimitivePolyline.getAllPrimitiveId", timeout=15) or []
+        n = 0
+        for pid in pids:
+            try:
+                g = self.eda.call("pcb_PrimitivePolyline.get", pid, timeout=8) or {}
+                if g.get("layer") in (11, "11", None):
+                    self.eda.call("pcb_PrimitivePolyline.delete", pid, timeout=8)
+                    n += 1
+            except Exception:
+                pass
+        return n
+
+    def auto_board_outline(self, margin=100, purge=True):
         """从 PCB 焊盘 bbox **自动**算出并程序化创建矩形板框(无需 GUI、无需手填尺寸)。
 
         margin 默认 100mil:给 TH 焊盘留足 JLC「板边到插孔 ≥11.8mil」余量。早期 60mil 在大插孔焊盘
@@ -326,6 +346,7 @@ class Flow:
         延伸。故 top-left 的 y 取 **max_pad_y + margin**(不是 min),否则板框落到器件**下方**、
         把器件框在外面,自动布线得 0 条铜线。
         """
+        purged = self.purge_board_outlines() if purge else 0
         pads = self.eda.call("pcb_PrimitivePad.getAllPrimitiveId", timeout=15) or []
         if not pads:
             raise FlowError("auto_board_outline: 没有焊盘,无法估板框(先 importChanges?)")
@@ -340,7 +361,9 @@ class Flow:
         top_y = max(ys) + margin
         w = (max(xs) - min(xs)) + 2 * margin
         h = (max(ys) - min(ys)) + 2 * margin
-        return self.board_outline_rect(x, top_y, w, h)
+        out = self.board_outline_rect(x, top_y, w, h)
+        out["purged"] = purged
+        return out
 
     def set_net_track_width(self, width_mm, nets):
         """**程序化**设计规则:给指定网络设更宽的布线线宽(电源/地走粗线)。
@@ -496,6 +519,56 @@ class Flow:
     # --- DRC ---
     def drc_check(self, timeout=60):
         return self.eda.call("pcb_Drc.check", timeout=timeout)
+
+    # DRC 违规明细的**唯一真相源**是 GUI 面板,不是 API。第二十二章硬验证:`pcb_Drc` 命名空间
+    # 全表只有 check()/getRealTimeDrcStatus() 两个返回**裸 bool**(通过/不通过)的方法,**没有任何**
+    # 取逐条违规(类型/对象/网络/层/说明)的接口;EXTAPI 根下也只有 pcb_Drc / sch_Drc 两个命名空间,
+    # 没有 DrcError 之类可枚举图元。故第二十章「板框→J3 0.9mil 偶发摆放」纯属未读面板的臆测——
+    # 实测密板真实违规是「连接错误(XTAL1/DSIG_N 两网未布通)+ 差分对长度差 1256.7mil>10mil 容差」,
+    # 与板框几何毫无关系。教训:DRC 失败必须**读面板逐条**,严禁靠几何直觉猜。
+    # 本方法即「读面板」的程序化实现:派发内置「Check DRC」算完后,直接抓取 DRC 结果表 DOM,
+    # 把每行解析成 {no,type,object,rule,obj1,obj2,layer,explain}。这样布完即可拿到**真违规清单**
+    # 驱动后续修复(而不是只知道一个 false)。
+    _DRC_SCRAPE = r"""(()=>{
+      var KW=/Connection Error|Differential Pair|Clearance|Width|Spacing|Short|Annular|Hole|Silk|disconnected|tolerance|should be|Net Antenna|Unrouted/i;
+      var out=[];
+      [].slice.call(document.querySelectorAll('table tbody tr')).forEach(function(tr){
+        var tds=[].slice.call(tr.querySelectorAll('td')).map(function(td){return td.textContent.trim();});
+        if(!tds.length) return;
+        var joined=tds.join(' | ');
+        if(!KW.test(joined)) return;                 // 只留 DRC 行,滤掉器件库等其它表
+        // 列序(随版本浮动):No, [Display空], Error Type, Error Object, Rule, Obj1, Obj2, Layer, Explanation
+        var c=tds.filter(function(x){return x!=='';});
+        out.push({raw:c});
+      });
+      return JSON.stringify(out);
+    })()"""
+
+    def read_drc_violations(self, run_check=True, settle=2.0):
+        """读取 **GUI DRC 面板** 的逐条违规清单(API 取不到,只能抓面板 DOM)。
+
+        run_check=True 先派发工具栏「Check DRC」让面板算出并填充结果表,再抓 DOM。
+        返回 list[dict],每条含 raw=该行非空单元格文本列表(No/类型/对象/规则/网络/层/说明)。
+        没有违规则返回 []。这是「发现所有问题」的眼睛:布完即能列出真实违规驱动修复。
+        """
+        if run_check:
+            try:
+                self.eda.call("pcb_Drc.check", timeout=90)
+            except Exception:
+                pass
+            # 同时点工具栏 Check DRC 按钮,确保结果表(GUI)被填充
+            try:
+                ui_click_text(self.ws, ["Check DRC"], settle=settle)
+            except Exception:
+                pass
+            time.sleep(settle)
+        v, e = d.evaluate(self.ws, self._DRC_SCRAPE, await_promise=False, timeout=20)
+        if e or not v:
+            return []
+        try:
+            return json.loads(v)
+        except Exception:
+            return []
 
     # --- 导出 ---
     def _export(self, call_js, out_path, timeout=120):
