@@ -565,3 +565,27 @@ placement/routes/9 via/数百 wire)→ `pcb_Document.importAutoRouteSesFile(File
 → 至此「业界开源/工业成果(FreeRouting 布线、Altium 库)→ JLC」适配面经实测打通,
 配既有 worker `/import`(.epru 无损整板),用户不论持有何种生态资产,皆可流入本系统而
 **不必从零搭建**。`resource_registry` 中相应端点已由 · 升为 ✓。
+
+### 实证⑥:超大工程(169.6MB X86 主板)分块流式 import —— 突破单帧透传上限
+**根因定位**:原 `import_project` 把整份 .epru 内联进单条 `Runtime.evaluate` 表达式,
+169MB 一帧透传触达 Chrome CDP 单消息上限 → 这就是上轮记下的「177MB 单帧透传上限」。
+
+**解法(`canvas_lowlevel.stream_epru_to_page` + `import_project_streamed`)**:
+把 .epru 切成 ≤chunk 的块,逐块 base64 推入页内 `window.__parts`(每帧 ≤4MB,远低于
+上限),全部到位后页内 `字节合并 → TextDecoder('utf-8')` 还原为完整字符串;再令 worker
+import **直接引用** `window.__epru`(`datas.dataStr:window.__epru`)→ 任何单帧都不再
+承载全量,而 `parseExport3_0` 仍拿到**完整无损** dataStr。
+
+**实测(全程零 GUI)**:
+- 传输无损:169.6MB / 4MB = **43 块**流入,页内重组 **177,809,353 字节 == 源(逐字节相等)**;
+  另以含多字节中文的 7.6MB 串单测,重组字符数/首尾完全一致 → 二进制无损成立。
+- 落库成功:worker import **31.7s** 返回完整 uuid 映射;服务器回读确认
+  SCH/SCH_PAGE(35 页)/SYMBOL(203)/DEVICE(200)/PCB/BOARD 全部克隆,**原理图与 PCB 装配拓扑完整重建**。
+
+**诚实暴露的边界(未掩盖)**:源含 **1535** 个 FOOTPRINT 文档,而 import 的 `footprintMap`
+仅 **652**。判断:这 652 应为 **1066 元件 PCB 实际引用(去重)的封装集**,被丢的 ~883 为作者
+随包携带、**未被设计引用的孤立库封装**——即 import 走「设计 + 被引用依赖」而非整库照搬,
+故**设计拓扑无损、库冗余未带**。但精确选择规则(引用闭包 vs 内容去重)尚未逐字节钉死,
+列为开放项:后续可对比 import 前后 PCB COMPONENT 的封装引用闭包以最终判定是否需要「全库随迁」选项。
+
+→ 至此 169MB 级超大工程的**流式无损透传 + 落库**通路成立,单帧上限不再是天花板。

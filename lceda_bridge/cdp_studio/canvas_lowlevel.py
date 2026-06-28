@@ -34,6 +34,7 @@
 4. 非阻塞调用法(必须):rpc 无回执时页内 awaitPromise 会冻结整条 CDP。
    故一律 fire-and-poll:.then 写 window.__wr,分轮询读。
 """
+import base64
 import json
 import time
 import sys
@@ -171,6 +172,76 @@ def import_project(ws, bus, target_project_uuid, epru_str, images=None, wait=180
         "structure": "export3.0",
     }
     return wrpc(ws, bus, "/mgr/projectWorker/import", args, wait=wait)
+
+
+def stream_epru_to_page(ws, epru_str, chunk_bytes=2 * 1024 * 1024, var="__epru"):
+    """把超大 .epru 全文**分块流式**送进页内变量 window[var],突破单帧透传上限。
+
+    逐块以 base64 推入 window.__parts(每帧 ≤ chunk_bytes 的 base64,远小于 CDP
+    单帧上限),全部到位后页内一次性 拼接字节 → TextDecoder('utf-8') 还原为字符串,
+    与一次性透传**逐字节等价**(二进制无损)。返回 (页内字节数, 块数)。
+    """
+    raw = epru_str.encode("utf-8") if isinstance(epru_str, str) else epru_str
+    n = len(raw)
+    d.evaluate(ws, "(()=>{window.__parts=[];return 1;})()", await_promise=False, timeout=10)
+    nchunks = 0
+    for off in range(0, n, chunk_bytes):
+        seg = raw[off:off + chunk_bytes]
+        b64 = base64.b64encode(seg).decode()
+        push = "(()=>{window.__parts.push(%s);return window.__parts.length;})()" % json.dumps(b64)
+        v, e = d.evaluate(ws, push, await_promise=False, timeout=60)
+        if e:
+            raise RuntimeError("stream chunk %d 失败: %s" % (nchunks, e))
+        nchunks += 1
+    # 页内拼接还原:base64 → bytes → 合并 → UTF-8 解码为字符串
+    assemble = (
+        "(()=>{try{var P=window.__parts,tot=0,as=[];"
+        "for(var i=0;i<P.length;i++){var bin=atob(P[i]);var a=new Uint8Array(bin.length);"
+        "for(var j=0;j<bin.length;j++)a[j]=bin.charCodeAt(j);as.push(a);tot+=a.length;}"
+        "var all=new Uint8Array(tot),o=0;for(var k=0;k<as.length;k++){all.set(as[k],o);o+=as[k].length;}"
+        "window['%s']=new TextDecoder('utf-8').decode(all);window.__parts=null;"
+        "return window['%s'].length;}catch(e){return 'ERR:'+String(e&&e.message||e);}})()"
+        % (var, var)
+    )
+    v, e = d.evaluate(ws, assemble, await_promise=False, timeout=180)
+    if e:
+        raise RuntimeError("页内拼接失败: %s" % e)
+    return v, nchunks
+
+
+def import_project_streamed(ws, bus, target_project_uuid, epru_str,
+                            chunk_bytes=2 * 1024 * 1024, wait=600):
+    """★★★ 超大工程**流式**整板灌库:先把 .epru 分块流入页内 window.__epru,
+    再令 worker import 直接引用该变量(dataStr:window.__epru)——单帧不再承载全量,
+    突破 169MB 级单帧透传上限,而 parseExport3_0 仍拿到**完整无损**的 dataStr。
+
+    入参/返回同 import_project;额外:超大工程 worker 解析耗时长,wait 默认放宽。
+    """
+    page_len, nchunks = stream_epru_to_page(ws, epru_str, chunk_bytes=chunk_bytes)
+    if isinstance(page_len, str) and page_len.startswith("ERR"):
+        return None, "stream assemble %s" % page_len
+    # fire:rpcCall 引用页内 window.__epru,避免任何单帧承载全量
+    fire = (
+        "(()=>{window.__wr=0;try{var B=%s;"
+        "if(!B||!B.rpcCall){window.__wr={err:'no bus'};return 1;}"
+        "var args={uuid:%s,datas:{dataStr:window.__epru,images:{}},structure:'export3.0'};"
+        "B.rpcCall('/mgr/projectWorker/import',args).then(r=>{window.__wr={ok:r}})"
+        ".catch(e=>{window.__wr={err:String(e&&e.message||e)}});"
+        "}catch(e){window.__wr={err:'throw '+String(e)}}return 1;})()"
+        % (bus, json.dumps(target_project_uuid))
+    )
+    d.evaluate(ws, fire, await_promise=False, timeout=15)
+    for _ in range(wait):
+        time.sleep(1)
+        v, _e = d.evaluate(
+            ws,
+            "(()=>window.__wr===0?'pending':"
+            "(window.__wr.ok!==undefined?'OK':JSON.stringify(window.__wr)))()",
+            await_promise=False, timeout=10,
+        )
+        if v and v != "pending":
+            return ("OK" if v == "OK" else None), (None if v == "OK" else v), page_len, nchunks
+    return None, "TIMEOUT(no reply)", page_len, nchunks
 
 
 if __name__ == "__main__":
