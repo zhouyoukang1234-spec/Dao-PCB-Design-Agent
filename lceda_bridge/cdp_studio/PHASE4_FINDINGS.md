@@ -421,3 +421,47 @@ Gerber 30KB——**全网连通、两种布线后端(内置 / Freerouting@8.5mil
    余量(JLC 板边到插孔 ≥11.8mil);并应在画真板框前扫描清除落在焊盘 11.8mil 内的杂散 layer-11 几何。
 4. **引擎能力本身已验证到位**:本密板在内置 / Freerouting 两后端都 100% 布通、双面敷铜、出 30KB Gerber;
    唯一拦路是一处摆放相关的板框-焊盘间距偶发,非系统性缺陷。
+
+## 第二十一章 · Freerouting 全套 JLC 规则对齐:网类 clearance 才是真盲点
+
+### 21.1 此前规则对齐的盲点
+第十八章把 DSN 间距从 6.03mil 预抬到 8.5mil 让 Freerouting 留余量,确实让 NE555 由 DRC False
+转 True。但回看 `_bump_clearance` 只改了 DSN **structure 段**的 `(rule(clear N))`——而嘉立创
+导出的 DSN 在**网络段**还为**每个网类**单独写了一条规则:
+
+```
+(class GND 'GND' (circuit (use_via via0)) (rule (width 10) (clearance 4.02)))
+```
+
+密板实测有 **17 个网类全部 `(clearance 4.02)`**(约 0.1mm),且在 Specctra/Freerouting 语义里
+**网类规则优先级高于 structure 默认**。也就是说:即便把 structure clear 抬到 8.5mil,Freerouting
+仍按网类的 **4mil** 贴着布——比 JLCPCB 6mil 下限还低。这是规则对齐一直没堵死的真盲点。
+
+### 21.2 正解:`_apply_jlc_rules` 写全套 JLC 规则
+新增 `freerouting_route._apply_jlc_rules(dsn, profile=JLC_2LAYER)`,一次覆盖四处(之前只覆盖一处):
+
+1. structure `(rule(clear N..))` 全部 → 8.0mil(含 default_smd / smd_smd 子类型);
+2. structure `(rule(width N))` → 10.0mil;
+3. **每个网类** `(rule (clearance N) (width N))` 的 clearance/width 一并改——**堵死 4mil 盲点**;
+4. 过孔 padstack `(shape(circle <layer> 24..))` 外径 → 24mil(JLC 0.6mm 标准过孔)。
+
+`JLC_2LAYER = {track_mil:10, clear_mil:8, via_pad_mil:24, via_hole_mil:11.8}`(下限+安全余量:
+JLC 最小线宽 3.5mil/间距 6mil/过孔 0.3mm 钻,取 8mil 间距给布线落回 EasyEDA 后过 6mil DRC 留余量)。
+`route_with_freerouting(jlc=True)` 为默认路径。
+
+### 21.3 硬验证(本会话实跑,编辑器 aiotvr 已登录)
+- **密板 DSN 审计**:`_apply_jlc_rules` 实测改动 `{clear:3, width:1, class_clearance:17, class_width:18,
+  via_pad:4}`,改后全文 `4.02` 归零——17 条网类 clearance 全部由 4.02→8.0。证明盲点确实存在且被堵死。
+- **NE555 端到端(纯净验证,避开密板板框偶发)**:scaffold→place 7→wire 44→sync missing=[]→
+  自动板框(margin=100)→**Freerouting(JLC 规则)56 铜线→DRC True**→双面 GND 敷铜→**drc_final True**→
+  Gerber 13KB。生成的 `Dao_NE555_JLC_JLC.dsn` 审计:`(clear 8.0)×3 + (clearance 8.0)×7 +
+  circle 24.0×2 + rule(width 10.0)`,无任何 4.02 残留。**JLC 规则路径产出可送厂、DRC 通过的板。**
+- **密板端到端**:同链路跑通(place 17/missing=[]/diff DIFF:true/Freerouting 157 铜线/双面敷铜/
+  Gerber 32KB),但 DRC 仍 False——与第二十章一致,拦路是「板框→J3 插孔」摆放偶发,**与 clearance/
+  布线无关**,故 JLC 规则不针对它;NE555 已隔离证明规则路径本身正确。
+
+### 21.4 沉淀
+1. **规则对齐要改全 DSN,不能只改 structure**:网类段 clearance 优先级更高,是真正生效的那一份;
+   只抬 structure 是"看着对、实际没生效"的假对齐。
+2. **盲点要用文件审计逐项证实**:`_apply_jlc_rules` 返回改动计数 + 改后全文搜残留值,可断言无遗漏。
+3. **验证要选无混淆的板**:密板有板框偶发会掩盖规则效果,用宽松 NE555 隔离才证得"规则路径→DRC 通过"。
