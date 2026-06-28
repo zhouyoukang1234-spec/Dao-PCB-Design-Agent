@@ -146,6 +146,33 @@ def set_pcb_canvas(ws, bus, pcb_uuid, canvas_datastr):
     )
 
 
+def import_project(ws, bus, target_project_uuid, epru_str, images=None, wait=180):
+    """★★★ 整板底层灌库:把一整份 .epru(成品板全部子文档)经 worker `import`
+    端点一次性写入目标工程 —— 弃 EXTAPI、弃 GUI、二进制不丢(走 worker 总线非 JSON 桥)。
+
+    逆向自 project-worker.js:
+        workerBus.rpcService(public.import, t => instance.import(t))
+        import(s){ new Xd(s,this).start() }       # Xd = ImportTarget(批量粘贴式导入)
+        Xd: {uuid, datas, structure} ──►
+            structure==='export3.0' 或 typeof datas.dataStr==='string'
+              → parseExport3_0: Mn({str:dataStr}) 解析 .epru → gc(...) 写入工程数据库
+    入参:
+        target_project_uuid  目标(空)工程 uuid;须先 createProject + 打开任一文档使 worker 实例化
+        epru_str             解包 .epro2 得到的 .epru 全文(逐行 {header}||{payload}|)
+    返回:wrpc 结果。成功为 {success:true, result:{map:{symbolMap,deviceMap,
+        footprintMap,schematicMap,pcbMap,pathMap,...}}}(新旧 uuid 映射表)。
+
+    ★ 实证:NE555 Blinker 成品板(20 子文档)→ 全新空工程,克隆出的原理图器件
+      (NE555 八脚符号 + 电阻)与 PCB(铜层/焊盘/封装)在编辑器中完整渲染。
+    """
+    args = {
+        "uuid": target_project_uuid,
+        "datas": {"dataStr": epru_str, "images": images or {}},
+        "structure": "export3.0",
+    }
+    return wrpc(ws, bus, "/mgr/projectWorker/import", args, wait=wait)
+
+
 if __name__ == "__main__":
     import eda_flow
 

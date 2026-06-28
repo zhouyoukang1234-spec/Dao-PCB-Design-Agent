@@ -347,3 +347,49 @@ LCEDA Pro 的 **File→Import** 支持几乎全部工业格式,**逆向工程标
 4. `netlistComparison` 做"成品 vs 我方还原"的逐层一致性校验,暴露差距、逐项修。
 
 *为学者日益,闻道者日损。损之又损,以至于无为。先把边界看清,再以最小动作根治。*
+
+---
+
+## ★★★★★ 会话 2g 终局:整板**底层克隆**打通(弃 EXTAPI / 弃 GUI · 道并行而不相悖)
+
+承接两路并归一为**整板低层克隆**靶子,一举证成:
+① 突破 JLC 原生 API 上限(二次逆流·整板写入);② 从**成品板反向推演**并确定性重建。
+
+### 决定性结论:官方导入 API 是死路,worker `import` 才是底层正道
+- `extensionApiMessageBus2 = window.top._MSG_BUS2_EXTAPI_`。直驱裸总线复测
+  `SYS_FileManager.importProjectByProjectFile`(传页内自建 File)→ **resolve `{}`(无错无果)**。
+  根因:**该桥按 JSON 序列化入参,`File`/二进制 → `{}`**(过桥即丢)。⇒ 官方导入 API 天花板坐实。
+- 同理 `dmt_Project.createProject(...)` 多参直驱亦静默返回空(扩展权限门控)。
+  但**经 `eda_api.call("dmt_Project.createProject", name)` 单参走既有封装可正常建工程**(实测得 uuid)。
+
+### 逆出 worker 端**整板导入**端点(走 worker 总线,非 JSON 桥,二进制不丢)
+```
+project-worker.js:
+  workerBus.rpcService(public.import, t => instance.import(t))
+  import(s){ messageBus.publish("startBatch",uuid); new Xd(s,this).start() }   # Xd=ImportTarget
+  Xd{constructor:{uuid,datas,structure}}.start():
+     structure==="export3.0" || typeof datas.dataStr==="string"
+        → parseExport3_0(datas): Mn({str:dataStr}) 解析 .epru → gc({...,datas}) 逐 entity 写工程库
+     structure==="export2.0" || datas.config?.defaultSheet!==undefined → parseExport2_0
+     structure==="exist3.0"  || datas                                  → importTarget
+```
+⇒ **топic `/mgr/projectWorker/import`,入参 `{uuid:<目标工程>, datas:{dataStr:<.epru 全文>,images:{}}, structure:"export3.0"}`**。
+封装见 `canvas_lowlevel.import_project()`;端到端复现见 `demo_project_clone.py`。
+
+### 端到端实证(NE555 Blinker 成品板 → 全新空工程)
+1. `getProjectFileByProjectUuid` 取成品 .epro2 → 解包 .epru(211,100 B,20 子文档)。
+2. `createProject` 建空工程 `DAO_BOTTOM_CLONE_*`;打开默认页使 worker 实例化。
+3. `wrpc('/mgr/projectWorker/import', {uuid, datas:{dataStr}, structure:"export3.0"})`
+   → `{success:true, result:{map:{symbolMap×5, deviceMap×5, footprintMap×3, schematicMap×1, pcbMap, pathMap}}}`
+   (整板逐 entity 落库 + 新旧 uuid 自动重映射)。
+4. `sch_Document.save` → **服务器回读** .epro2 解包:
+   `FOOTPRINT×3 / SYMBOL×5 / DEVICE×6 / SCH×2 / SCH_PAGE×2 / PCB×2 / PANEL×2 …`
+   导入页 `SCH_PAGE{COMPONENT×3, ATTR×68}`;导入 `PCB{PRIMITIVE×37, COMPONENT×2, PAD_NET×10, NET, LAYER×60, LINE×4}`。
+5. **编辑器可视化完好**(proofs/clone_ne555_rendered.png):`Fit Selection` 框出
+   **U1=NE555 八脚符号(GND/TRIG/OUT/RESET + VCC/DISCH/THRES/CONT,脚号 1-8)+ R1 电阻**,
+   符号几何 / 引脚 / 位号全渲染 = **渲染完整无缺**。proofs/clone_project_tree.png 见工程树
+   Board1_1 / Schematic1_1 / PCB1_1 整套导入。
+
+### 道:为何这条成立而 EXTAPI 不成立
+worker 总线(BroadcastChannel)承载结构化字符串无损;`.epru` 即 dataStr,过 worker 不经 JSON-File 丢失。
+**反者道之动**——从成品(.epru)反向一次性灌库,比"逐元素合成"更确定、更高效;无为(不放一颗件)而无不为(整板自现)。
