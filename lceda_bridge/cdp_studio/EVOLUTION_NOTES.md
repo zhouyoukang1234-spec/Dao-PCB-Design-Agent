@@ -29,6 +29,27 @@
 `showOpenFilePicker` 喂 File 走完整 UI 管线);**(B)** 强化已验证的**正向程序化构建 + 导出**链
 (根治放件非确定:接原生 `autoLayout`/`autoRouting`、或确定性坐标),用它产出参考件再做对比。
 
+### 〇.1 引擎级 API 实测(会话 2d·布线/布局/创建)
+反出并实测了一批引擎级方法,进一步印证上面的统一边界:
+| 方法 | 语义/实测 | 判定 |
+|---|---|---|
+| `pcb_ManufactureData.getDsnFile(name)` | 返回 Specctra **DSN** File(`{blobData}`→File)——**FreeRouting 导出侧**;空 PCB 上返回 undefined(需有内容) | ✅ 可达(需放好件的 PCB) |
+| `pcb_Document.importAutoRouteSesFile(file)` | 回灌 FreeRouting **SES** 布线结果 | 待在有件 PCB 上验 |
+| `pcb_ManufactureData.getAutoRouteJsonFileForJRouter()` | **JLC 自带 JRouter 自动布线器**的输入 JSON(`getAutoRouteJsonForJR`)→ File | ✅ 反出(JLC 原生布线器!) |
+| `pcb_Document.importAutoRouteJsonFile(file)` | 回灌 JRouter 布线结果 | 待验 |
+| `sch_Document.autoLayout({netlist,designatorDeviceTypeMap})` | **只排布已存在器件**(传 uuids/netlist),实测对空图返回 `{}`、不新建器件 | ⚠️ 排布≠创建 |
+| `sch_Document.autoRouting({...})` | 同上,自动连线(对已存在器件) | ⚠️ 需先有件 |
+| `sch_PrimitiveComponent.create(t,i,n,r,s,a,o,l)` → `new fa("part",...)` | **唯一非鼠标创建原语**;`create("<deviceId>",x,y)` **实测 hang**(疑创建时向库后端拉取符号,headless CDP 不完成);仅 `t` 单参 → `数据不符合规范` | ❌/⚠️ 卡在库后端拉取 |
+| `sch/pcb_PrimitiveComponent.placeComponentWithMouse/placeSymbolWithMouse` | 走合成鼠标(用已加载的库状态)——**当前唯一能真放件的路**,但非确定 | ⚠️ 鼠标依赖 |
+
+**★ 统一根因(本会话最深结论)**:**凡需"经后端拉取/上传内容"的操作(导入工程、从库创建器件、网表比对、
+器件库符号解析)在程序化 CDP 下一律 hang 或返回 falsy;只有"页内数据操作 + 生命周期 + 用已加载库状态的
+鼠标 UI 放件"能成。** 这把此前散落的负结论(import falsy / comparison undefined / create hang)收敛成一条。
+- ⇒ **下一跃迁的两条真路**:① 用 **DAO Bridge `browser_*`(含 browser_upload)** 在真实浏览器里走完整 UI
+  导入/放件管线(后端上传通道完整);② 预加载库状态后再程序化 `create`(让符号已在内存,绕开后端拉取)。
+- **可立即兑现的 ✅ 能力**:JRouter / FreeRouting **导出侧**(`getDsnFile`/`getAutoRouteJsonFileForJRouter`)
+  在"已放件 PCB"上完全程序化可达 → 这是接成熟布线器的确定入口。
+
 ## 一、当前稳定可复现的能力(全链路核心环)
 
 每次运行 `build_blinker.py` 都**端到端走通并产出真实可制造文件**:
