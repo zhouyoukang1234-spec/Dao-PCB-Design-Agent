@@ -437,3 +437,29 @@ PCB:    器件×1066  命名网络×1644  焊盘×17506  过孔×4554  走线×2
    → 边界:大工程克隆需分文档/分段流式注入,或走服务端 copyProject(`/api/client/copyProject` 仅桌面端)/
      "Save Project to Cloud" 命令(SaveAs-Remote)在线复制,免数据透传。
 2. 文档功能名离线缺失 → 功能分区现靠 net/partId 启发式;后续可经在线结构 API 取真实页名。
+
+### 实证②:社区成品 → 我账号 **端到端克隆**(EDA-Pager 寻呼机)
+oshwhub `d6f7528f939246efa27ed7e0ba022c6f`(立创课程案例,3.1 MB .epro2 / 10.6 MB .epru,
+源:FOOTPRINT×55 SYMBOL×88 DEVICE×77 **BOARD×4 SCH×4 SCH_PAGE×4 PCB×4**)。
+经 `demo_project_clone.py`(getProjectFileByProjectUuid → createProject → worker
+`/mgr/projectWorker/import`)克隆进我账号工程 `85732e77534b4392b67f4bc4507ad532`:
+- import 映射:symbolMap×87 deviceMap×76 footprintMap×50 schematicMap×1 pcbMap×1 boardMap×1 …
+- 克隆 PCB **整板渲染完好**(见 proofs/pager_community_clone_pcb.png):板框 / 底层铜皮 /
+  布线 / 过孔 / 焊盘 / ANTENNA 丝印 / 金手指;选中一条 TRACK 属性真实:
+  Layer=Bottom, Length=51.939mm, **Net=+3.9V**, NetLength=72.363mm —— 网络/布线无损落库。
+
+### ★ 本会话**新暴露**的系统边界(逐项)
+1. **多 Board 工程单次 import 只重建 1 块板**:源 4 BOARD/4 SCH/4 PCB,单次 worker import
+   仅落库 1 块(库实体 symbol/device/footprint 近乎全量,但 board/sch/pcb 结构只 1 套)。
+   → 根因:`import`(Xd) 以**单一 board 上下文**收口;export3.0 单帧只挂主板。
+   → 突破方向:**按源 BOARD 逐块迭代 import**(每块前建 board 上下文),或逆出多板 structure 帧。
+2. **超大工程透传上限**:177 MB .epru(X86 主板)单帧 worker import 风险高(浏览器/worker
+   内存 + CDP 帧)。→ 突破方向:分文档流式注入,或服务端复制(SaveAs-to-Cloud 命令)免透传。
+3. **EXTAPI `copyProject` 在 Web 为空壳**(`copyProject(t,i,n,r,s){}` 空体);桌面端 copyProject
+   走文件 path。→ 坐实:工程级复制在 Web 仍须走 worker 总线(非 EXTAPI),与既有"EXTAPI 天花板"一致。
+
+### 沉淀的可复用资产
+- `reverse_analyze.py`:成品 .epro2 → 设计情报(层叠/网络分类/功能块/BOM/封装)。
+- `demo_project_clone.py`:对**任意社区 uuid**端到端克隆(已验证非自有公开工程)。
+- 社区接入要点:oshwhub 同源 `/api/project/{uuid}` 取元数据;
+  `getProjectFileByProjectUuid(<oshwhubUuid>)` 取整包 .epro2(公开工程不受所有权门控)。
