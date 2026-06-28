@@ -124,11 +124,29 @@ scaffold(建工程/原理图/PCB) → open sch → place(放件) → save
 - ⇒ **确定性建网的真正入口是 `sch_Netlist.setNetlist`(构建原理图)+ `sch_Document.importChanges`**;
   pcb 侧 set 仅用于"灌入参考网表做反向比对"——这恰好是**逆向工程比对**的利器(用成品网表当参考)。
 
+### ★ 关键判决:setNetlist 不建器件(实测·确定性结论)
+- 把含真实器件 props 的 .enet 网表(`exports/Dao_Blinker_092358/...enet`)灌进**全新空原理图**:
+  `sch_Netlist.setNetlist('JLCEDA', enetJSON)` 返回 ok 但 **`ret` 为 undefined,`parts()` 仍为空**。
+  ⇒ **`setNetlist`(sch 与 pcb 皆然)只设"参考网表",不创建任何器件/符号/网络。**
+- 全 EXTAPI 扫描"能创建设计内容的导入"方法,仅 **`sys_FileManager.importProjectByProjectFile`**
+  一个真入口(+ `sch/pcb_Document.importChanges` 做 sch↔pcb 同步;`importAutoRoute*` 仅回灌布线)。
+- **统一结论(反者道之动落到实处)**:**确定性建网 = 导入成品工程文件**(而非 setNetlist、也非鼠标放件)。
+  这把"确定性建网"与"逆向工程"两条路**合一**:不再手搓放件,直接 `importProjectByProjectFile`
+  灌入真实成品(EasyEDA/LCEDA/Altium/KiCad/EAGLE…)→ 得可编辑器件+网络 → 再逆推/比对/布线。
+- `.enet` 网表规范格式(已存样本):
+  ```
+  { version:"2.0.0",
+    components:{ "<UniqueID>":{ props:{ Footprint, Device, Designator, FootprintName,
+                                        DeviceName, "3D Model", Supplier, "Convert to PCB", ... },
+                                pinInfoMap:{ "<pin>":{name,number,net} } } },
+    designRule:{trackPhysics,netRule}, netClass, equalLengthNetGroup, differentialPair }
+  ```
+  网络 = 各 pin 的 `net` 同名归并;器件身份全在 `props`(Device/Footprint 为库 uuid)。
+
 ### 反向路线下一步(可执行顺序)
-1. **走 `sch_Netlist.setNetlist` + `importChanges` 做确定性建网**(见上语义结论):
-   先在新开编辑器内取一份 sch 网表样本(给 sch 的 getNetlist 内部封装查询加 fire-and-forget
-   绕过 hang),摸清 sch 网表 schema → 程序化构造器件+网络 → setNetlist 落到原理图 →
-   importChanges 下传 PCB → 回读校验。打通即得**确定性建网骨干**,正向鼠标放件瓶颈作废。
+1. **走 `importProjectByProjectFile` 做确定性建网/逆向导入**(见上判决):查清其接受的源格式枚举与
+   文件传参方式(CDP 下如何喂文件)→ 拉一块真实开源板(EasyEDA/LCEDA 工程或 KiCad)→ 导入还原
+   可编辑器件+网络 → `importChanges` 下传 PCB → 回读校验。**这一条同时作废鼠标放件并兑现逆向工程。**
 2. 取一块真实开源硬件板(公开 Gerber/网表/BOM)→ `importProjectByProjectFile` 或
    网表导入 → 还原可编辑设计。
 3. **FreeRouting 闭环**:导出 Specctra DSN → FreeRouting 跑线 → `importAutoRouteSesFile` 回灌。
