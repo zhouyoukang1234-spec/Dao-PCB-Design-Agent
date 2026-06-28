@@ -28,6 +28,14 @@ import eda_flow
 import eda_rest
 
 
+def _group_by_width(net_widths):
+    """{net: width_mm} → [(width_mm, [nets...]), ...] 按线宽聚类,少调几次规则写入。"""
+    by = {}
+    for net, w in net_widths.items():
+        by.setdefault(w, []).append(net)
+    return list(by.items())
+
+
 class BoardSpec:
     """一张声明式电路单。
 
@@ -37,12 +45,13 @@ class BoardSpec:
     nets:  {网络名: [(designator, pinNumber), ...], ...}
     """
 
-    def __init__(self, name, parts, nets, introduction="", ground_pour=False):
+    def __init__(self, name, parts, nets, introduction="", ground_pour=False, net_widths=None):
         self.name = name
         self.parts = parts
         self.nets = nets
         self.introduction = introduction or (name + " — Dao declarative board")
         self.ground_pour = ground_pour  # True 则布线后自动双面铺 GND 地平面
+        self.net_widths = net_widths or {}  # {网络名: 线宽mm} 首次布线前写入设计规则(电源/地走粗线)
 
     def pin_count_hint(self):
         """每个器件在 nets 里被引用到的最大引脚号(用于放件后粗校验引脚数是否够)。"""
@@ -214,6 +223,15 @@ class BoardBuilder:
         f.prepare_pcb_nets()
         time.sleep(2)
         route = f.autoroute_gui(wait=18)
+        # 线宽:先默认布通,再**布线后**逐条加粗目标网铜线(规则法会让布线器罢工,见 widen_net_tracks)
+        widths = getattr(self, "_net_widths", {}) or {}
+        widened = None
+        if widths:
+            widened = {}
+            for w_mil, grp in _group_by_width(widths):
+                widened[str(w_mil)] = f.widen_net_tracks(w_mil, grp)
+            f.eda.call("pcb_Document.save", timeout=20)
+            time.sleep(1)
         pour = None
         if getattr(self, "_ground_pour", False):
             try:
@@ -228,7 +246,7 @@ class BoardBuilder:
         out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                (out_base or self.state.get("name", "Dao")) + "_fab")
         exp = f.export_all(out_dir, base=out_base or self.state.get("name", "Dao"))
-        return {"outline": bo, "route": route, "pour": pour, "drc": drc, "export_dir": out_dir,
+        return {"outline": bo, "widened": widened, "route": route, "pour": pour, "drc": drc, "export_dir": out_dir,
                 "export": {k: (v.get("size") if isinstance(v, dict) else v) for k, v in exp.items()}}
 
     # ---- 一键全流程 ----
@@ -239,6 +257,7 @@ class BoardBuilder:
         report["wire"] = self.wire(spec)
         report["sync"] = self.sync(spec)
         self._ground_pour = getattr(spec, "ground_pour", False)
+        self._net_widths = getattr(spec, "net_widths", {})
         report["route_export"] = self.route_export(out_base=spec.name, margin=margin)
         return report
 

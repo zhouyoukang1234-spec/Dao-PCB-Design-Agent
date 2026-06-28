@@ -303,3 +303,20 @@ Or=class{constructor(net, layer, complexPolygon, fillMethod="solid",
 签名已逆向:`createNetClass(name, nets[], color)` / `addNetToNetClass(name, net)` /
 `createDifferentialPair(name, pos, neg)`。边界:`createNetClass` 返回 null 且未落库
 (疑似需在规则配置上下文内改写 overwriteRuleConfiguration 才生效)——留作下一会话攻克。
+
+## 十七、设计规则与线宽控制——逐网规则可写,但自动布线器不吃加宽规则
+
+围绕"电源/地走粗线"探了一整条路,得到三段硬结论(全程序化验证):
+
+1. **逐网规则可写可落库**:`getNetRules()` 取回每网规则(每项含 "Track":"default"),
+   改成数值(mm)后 `overwriteNetRules(arr)` 返回 True 且 `getNetRules` 复读到值——
+   `Flow.set_net_track_width(width_mm, nets)`。(注:`createNetClass` 返回 null 不落库,此路不通。)
+2. **但内置自动布线器带着加宽规则直接罢工**:把 GND/VCC 的 Track 设 0.5mm,自动布线 = **0 条**;
+   设 0.254mm = **1 条**;恢复 default = **55 条 + DRC 过**。细间距焊盘下粗线逃不出,布线器整盘放弃。
+3. **正解=布线后逐条加粗**:默认线宽布通(DRC 过)后,遍历铜线按 `net` 改 `pcb_PrimitiveLine.lineWidth`
+   ——`Flow.widen_net_tracks(width_mil, nets)`,肉眼可见 GND/VCC 变粗红线(截图)。
+   但加得太宽会破间距:本 NE555 上 16/24mil 即超 JLCPCB 6mil 最小间距,DRC 由 True→False;
+   加宽须留间距余量。**真正的大面积配电应走覆铜地平面(第十五章 auto_ground_pour),而非加粗两端线。**
+
+引擎已据此定型:`BoardSpec(net_widths={"GND":12,...})` 走**布线后加粗**(非规则法),
+默认布通→加粗→(可选)铺地→DRC→导出。道:粗细非在规则之名,而在布通之后顺势而为。

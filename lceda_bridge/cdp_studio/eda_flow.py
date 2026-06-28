@@ -339,6 +339,47 @@ class Flow:
         h = (max(ys) - min(ys)) + 2 * margin
         return self.board_outline_rect(x, top_y, w, h)
 
+    def set_net_track_width(self, width_mm, nets):
+        """**程序化**设计规则:给指定网络设更宽的布线线宽(电源/地走粗线)。
+
+        本会话攻克的边界:`pcb_Drc.createNetClass` 返回 null **不落库**(疑似需在规则
+        配置上下文内 overwriteRuleConfiguration 才生效),但**逐网规则**这条路是通的:
+        `getNetRules()` 取回每网规则数组(每项含 "Track":"default"),把目标网的 "Track"
+        改成数值(单位 mm),再 `overwriteNetRules(arr)` 即落库(返回 True、getNetRules 复读到值)。
+        **关键顺序**:线宽规则必须在**首次自动布线前**设好(布完再 ripup 重布会与既有
+        覆铜互相干扰,得不到干净结果)。返回改了几条网。
+        """
+        rules = self.eda.call("pcb_Drc.getNetRules", timeout=20) or []
+        want = set(nets)
+        n = 0
+        for r in rules:
+            if r.get("name") in want:
+                r["Track"] = width_mm
+                n += 1
+        self.eda.call("pcb_Drc.overwriteNetRules", rules, timeout=25)
+        return n
+
+    def widen_net_tracks(self, width_mil, nets):
+        """**程序化**给指定网络的已布铜线加粗(电源/地走粗线)。
+
+        本会话攻克的边界与教训:把线宽写进**设计规则**(`set_net_track_width` 走
+        `overwriteNetRules`)虽能落库,但内置自动布线器**带着加宽规则会直接罢工**
+        (GND/VCC 设 0.25mm 时整板只布出 0~1 条线)——细间距焊盘下粗线逃不出去,布线器
+        干脆放弃。正解是**先按默认线宽布通(DRC 过),再回头逐条改 `pcb_PrimitiveLine.lineWidth`**。
+        注意 width 过大(本 NE555 上 16mil/24mil 即超 JLCPCB 6mil 最小间距)会让 DRC 报错,
+        加宽幅度须留间距余量;真正的大面积配电更应走**覆铜地平面**(见 auto_ground_pour)。
+        返回加粗的铜线条数。
+        """
+        ids = self.eda.call("pcb_PrimitiveLine.getAllPrimitiveId", timeout=15) or []
+        want = set(nets)
+        n = 0
+        for i in ids:
+            g = self.eda.call("pcb_PrimitiveLine.get", i, timeout=8)
+            if g and g.get("net") in want:
+                self.eda.call("pcb_PrimitiveLine.modify", i, {"lineWidth": width_mil}, timeout=8)
+                n += 1
+        return n
+
     def copper_pour(self, net, layer, x, y, w, h, name="", line_width=10):
         """**程序化**敷铜(覆铜):在某层用矩形给某网络铺地/铺电源平面。
 
