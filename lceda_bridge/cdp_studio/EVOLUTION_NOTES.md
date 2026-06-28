@@ -471,8 +471,13 @@ BOARD×4 SCH×4 PCB×4,但其中 **活动(未删除)只有** FOOTPRINT×50 SYMBO
    内存 + CDP 帧)。→ 突破方向:分文档流式注入,或服务端复制(SaveAs-to-Cloud 命令)免透传。
 3. **EXTAPI `copyProject` 在 Web 为空壳**(`copyProject(t,i,n,r,s){}` 空体);桌面端 copyProject
    走文件 path。→ 坐实:工程级复制在 Web 仍须走 worker 总线(非 EXTAPI),与既有"EXTAPI 天花板"一致。
-4. **真·多活动板场景未被本工程覆盖**:EDA-Pager 仅 1 活动板,故"多活动板单帧 import 行为"
-   仍待用一块**多活动板(拼板/多变体)社区工程**实测验证。
+4. **真·多活动板场景 → 已实测确认(单帧 import 全量重建多板)**:EDA-Pager 仅 1 活动板,
+   故造一个**真·多活动板**靶子验证——对一个空工程**连续 import 两次** EDA-Pager,
+   各自新建一块板 → 得 3 活动板工程(2 populated + 默认)。再**单次 import** 该 3 板工程克隆:
+   `boardMap` **回 3 条映射**(三块活动板一次性全建),pre-prune BOARD×4(+createProject 默认),
+   `prune_to_imported` 删默认后 **BOARD/SCH/SCH_PAGE/PCB 各 ×3,与源精确相等**。
+   → **结论:单次 worker import 完整重建多活动板源的全部板**;先前"单 import 只 1 板"纯因
+   EDA-Pager 源仅 1 活动板,并非 import 限制。多板能力(import + topology + prune)全链路打通。
 
 ### 沉淀的可复用资产
 - `reverse_analyze.py`:成品 .epro2 → 设计情报(层叠/网络分类/功能块/BOM/封装)+
