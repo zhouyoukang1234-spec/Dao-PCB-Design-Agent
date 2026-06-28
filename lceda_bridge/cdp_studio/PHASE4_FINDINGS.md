@@ -345,3 +345,11 @@ Or=class{constructor(net, layer, complexPolygon, fillMethod="solid",
 
 至此本系统拥有**两套布线后端**:嘉立创内置(快、DRC 自洽)与 Freerouting(强、需规则对齐),
 按需切换。道:善建者不拔,接口既通,外脑可换。
+
+### 十八续:规则对齐已闭——Freerouting 输出 DRC 全过
+
+上面遗留的"间距口径差"已攻克:`freerouting_route._bump_clearance` 在喂给 Freerouting 前把 DSN 的
+`(rule(clear 6.03))` 统一**预抬到 8.5mil**,Freerouting 即留足余量布线,落回 EasyEDA 后
+**DRC 全过**(NE555 实测:6.03→DRC False 几处违规;8.5→**61 铜线+多过孔、0 鼠线、DRC True、Gerber 导出**)。
+至此外部布线器闭环**完全打通且产出可送厂**:`route_with_freerouting(clear_mil=8.5)` 一条命令
+= EasyEDA 出 DSN(抬间距)→ Freerouting 跑批 → SES 回灌 → DRC 过 → 送厂包。双布线后端皆可送厂。

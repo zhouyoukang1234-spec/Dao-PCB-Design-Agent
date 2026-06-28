@@ -66,12 +66,30 @@ def run_freerouting(dsn_path, ses_path, max_passes=6, wait_s=40):
     return ses_path if os.path.exists(ses_path) else None
 
 
-def route_with_freerouting(base="DAO_FR"):
-    """在**当前已打开的未布线 PCB**上跑完整闭环。返回 {dsn, ses, tracks, drc}。"""
+def _bump_clearance(dsn_path, clear_mil):
+    """把 DSN 的 (rule(clear 6.03...)) 间距统一抬到 clear_mil。
+
+    本会话攻克的**规则对齐**边界:嘉立创导出的 DSN 默认 clearance=6.03mil,Freerouting 会贴着
+    6mil 布,落回 EasyEDA 后 JLCPCB DRC(6mil 下限)边界处零容差 → 几处违规。把 DSN 间距**预抬**到
+    8.5mil 让 Freerouting 留余量,布完落回即 **DRC 全过**(NE555 实测 6.03→DRC False,8.5→DRC True)。
+    """
+    import re
+    txt = open(dsn_path, "r", encoding="utf-8", errors="ignore").read()
+    txt = re.sub(r"\(clear\s+[\d.]+", "(clear %s" % clear_mil, txt)
+    open(dsn_path, "w", encoding="utf-8").write(txt)
+
+
+def route_with_freerouting(base="DAO_FR", clear_mil=8.5):
+    """在**当前已打开的未布线 PCB**上跑完整闭环。返回 {dsn, ses, tracks, drc}。
+
+    clear_mil:预抬 DSN 间距给 Freerouting 留余量,确保落回 EasyEDA 后过 JLCPCB DRC(见 _bump_clearance)。
+    """
     f = eda_flow.Flow()
     dsn = os.path.join(HOME, base + ".dsn")
     ses = os.path.join(HOME, base + ".ses")
     f.export_dsn(dsn, name=base)
+    if clear_mil:
+        _bump_clearance(dsn, clear_mil)
     out = run_freerouting(dsn, ses)
     if not out:
         return {"dsn": dsn, "ses": None, "tracks": 0, "drc": False, "err": "freerouting no SES"}
