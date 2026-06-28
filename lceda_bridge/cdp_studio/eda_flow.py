@@ -403,8 +403,16 @@ class Flow:
             self.ws.cmd("Input.dispatchKeyEvent",
                         {"type": t, "code": code, "key": key,
                          "windowsVirtualKeyCode": vk, "modifiers": mods}, timeout=8)
-        time.sleep(settle)
-        return len(self.eda.call("pcb_PrimitivePoured.getAllPrimitiveId", timeout=15) or [])
+        # 重建覆铜是异步的:轮询到实铜数稳定(连续两次相同)或超时
+        prev, stable = -1, 0
+        for _ in range(8):
+            time.sleep(settle / 2.0)
+            n = len(self.eda.call("pcb_PrimitivePoured.getAllPrimitiveId", timeout=15) or [])
+            stable = stable + 1 if n == prev and n > 0 else 0
+            prev = n
+            if stable >= 1:
+                break
+        return prev
 
     def reload_and_reopen(self, project_uuid, pcb_uuid, settle=8):
         """整页 reload(让布线引擎识别新建板框)后,重开工程+PCB 文档并等加载完。

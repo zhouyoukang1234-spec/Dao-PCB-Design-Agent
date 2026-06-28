@@ -52,6 +52,7 @@ SPEC = BoardSpec(
         "L2":    [("R5", "2"), ("LED3", "1")],
         "L3":    [("R6", "2"), ("LED4", "1")],
     },
+    ground_pour=True,   # 布线后自动双面铺 GND 地平面
 )
 
 

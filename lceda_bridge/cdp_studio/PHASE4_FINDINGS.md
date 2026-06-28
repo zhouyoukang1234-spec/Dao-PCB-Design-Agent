@@ -287,3 +287,19 @@ Or=class{constructor(net, layer, complexPolygon, fillMethod="solid",
 `BoardSpec(ground_pour=True)` 即布线后自动双面铺 GND。在 ATmega328 板实测:
 顶层红 + 底层蓝双面 GND 地平面,自动避让所有信号与焊盘;**Gerber 14.7KB→25.6KB**
 (地平面进了制造文件)、DRC 通过。至此全链路再进一步:0→放件→布线→**敷铜地平面**→送厂。
+
+## 十六、敷铜并入引擎全流程 + 设计规则 API 勘察
+
+把敷铜接进引擎一键流程:`BoardSpec(ground_pour=True)` → `build()` 在布线后自动
+双面铺 GND 并重建覆铜。多 IC 跑马灯板(14 器件/13 网)一键实测:122 铜线+10 过孔 →
+双面 GND 边框 + 顶层地平面铺满(自动避让)→ DRC 通过 → Gerber 含地平面导出。
+注:`pcb_PrimitivePoured` 实铜对象数有时 < 覆铜边框数(随各层可铺铜面积而定),
+`rebuild_pours` 已改为轮询到实铜数稳定再返回。
+
+**设计规则 API 勘察**(`pcb_Drc`,下一步攻克):
+`getCurrentRuleConfigurationName` = "JLCPCB Capability(Two Layers Board)";
+`getNetRules` 返回每网规则(Track/Safe Spacing/Via Size,默认 default);
+`getCurrentRuleConfiguration` 含一张 12×12 间距矩阵(单位 mm:0.152≈6mil 间距、0.102 线宽)。
+签名已逆向:`createNetClass(name, nets[], color)` / `addNetToNetClass(name, net)` /
+`createDifferentialPair(name, pos, neg)`。边界:`createNetClass` 返回 null 且未落库
+(疑似需在规则配置上下文内改写 overwriteRuleConfiguration 才生效)——留作下一会话攻克。
