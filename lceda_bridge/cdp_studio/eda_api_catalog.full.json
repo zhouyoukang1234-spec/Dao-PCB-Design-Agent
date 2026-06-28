@@ -1,0 +1,1223 @@
+{
+ "dmt_Board": {
+  "methods": {
+   "copyBoard": 1,
+   "createBoard": 2,
+   "deleteBoard": 1,
+   "getAllBoardsInfo": 0,
+   "getBoardInfo": 1,
+   "getCurrentBoardInfo": 0,
+   "modifyBoardName": 2
+  },
+  "type": "object"
+ },
+ "dmt_EditorControl": {
+  "methods": {
+   "activateDocument": 1,
+   "activateSplitScreen": 1,
+   "closeDocument": 1,
+   "createSplitScreen": 2,
+   "generateIndicatorMarkers": 5,
+   "getCurrentRenderedAreaImage": 1,
+   "getSplitScreenIdByTabId": 1,
+   "getSplitScreenTree": 0,
+   "getTabsBySplitScreenId": 1,
+   "mergeAllDocumentFromSplitScreen": 0,
+   "moveDocumentToSplitScreen": 2,
+   "openDocument": 2,
+   "openLibraryDocument": 4,
+   "removeIndicatorMarkers": 1,
+   "tileAllDocumentToSplitScreen": 0,
+   "zoomTo": 4,
+   "zoomToAllPrimitives": 1,
+   "zoomToRegion": 5,
+   "zoomToSelectedPrimitives": 1
+  },
+  "type": "object"
+ },
+ "dmt_Event": {
+  "methods": {
+   "addEditorTabEventListener": 3,
+   "isEventListenerAlreadyExist": 1,
+   "removeEventListener": 1
+  },
+  "type": "object"
+ },
+ "dmt_Folder": {
+  "methods": {
+   "createFolder": 4,
+   "deleteFolder": 2,
+   "getAllFoldersUuid": 1,
+   "getFolderInfo": 2,
+   "modifyFolderDescription": 3,
+   "modifyFolderName": 3,
+   "moveFolderToFolder": 3
+  },
+  "type": "object"
+ },
+ "dmt_Panel": {
+  "methods": {
+   "copyPanel": 1,
+   "createPanel": 0,
+   "deletePanel": 1,
+   "getAllPanelsInfo": 0,
+   "getCurrentPanelInfo": 0,
+   "getPanelInfo": 1,
+   "modifyPanelName": 2
+  },
+  "type": "object"
+ },
+ "dmt_Pcb": {
+  "methods": {
+   "copyPcb": 2,
+   "createPcb": 1,
+   "deletePcb": 1,
+   "getAllPcbsInfo": 0,
+   "getCurrentPcbInfo": 0,
+   "getPcbInfo": 1,
+   "modifyPcbName": 2
+  },
+  "type": "object"
+ },
+ "dmt_Project": {
+  "methods": {
+   "copyProject": 5,
+   "createProject": 5,
+   "deleteProject": 1,
+   "getAllProjectsUuid": 3,
+   "getCurrentProjectInfo": 0,
+   "getProjectInfo": 1,
+   "modifyProjectCollaborationMode": 2,
+   "modifyProjectDescription": 2,
+   "modifyProjectFriendlyName": 2,
+   "moveProject": 3,
+   "moveProjectToFolder": 2,
+   "openProject": 1
+  },
+  "type": "object"
+ },
+ "dmt_Schematic": {
+  "methods": {
+   "copySchematic": 2,
+   "copySchematicPage": 2,
+   "createSchematic": 1,
+   "createSchematicPage": 1,
+   "deleteSchematic": 1,
+   "deleteSchematicPage": 1,
+   "getAllSchematicPagesInfo": 0,
+   "getAllSchematicsInfo": 0,
+   "getCurrentSchematicAllSchematicPagesInfo": 0,
+   "getCurrentSchematicInfo": 0,
+   "getCurrentSchematicPageInfo": 0,
+   "getSchematicInfo": 1,
+   "getSchematicPageInfo": 1,
+   "modifySchematicName": 2,
+   "modifySchematicPageName": 2,
+   "modifySchematicPageTitleBlock": 2,
+   "reorderSchematicPages": 2
+  },
+  "type": "object"
+ },
+ "dmt_SelectControl": {
+  "methods": {
+   "getCurrentDocumentInfo": 0
+  },
+  "type": "object"
+ },
+ "dmt_Team": {
+  "methods": {
+   "getAllInvolvedTeamInfo": 0,
+   "getAllTeamsInfo": 0,
+   "getCurrentTeamInfo": 0
+  },
+  "type": "object"
+ },
+ "dmt_Workspace": {
+  "methods": {
+   "getAllWorkspacesInfo": 0,
+   "getCurrentWorkspaceInfo": 0,
+   "toggleToWorkspace": 1
+  },
+  "type": "object"
+ },
+ "extensionUuid": {
+  "methods": {
+   "anchor": 1,
+   "at": 1,
+   "big": 0,
+   "blink": 0,
+   "bold": 0,
+   "charAt": 1,
+   "charCodeAt": 1,
+   "codePointAt": 1,
+   "concat": 1,
+   "endsWith": 1,
+   "fixed": 0,
+   "fontcolor": 1,
+   "fontsize": 1,
+   "includes": 1,
+   "indexOf": 1,
+   "isWellFormed": 0,
+   "italics": 0,
+   "lastIndexOf": 1,
+   "link": 1,
+   "localeCompare": 1,
+   "match": 1,
+   "matchAll": 1,
+   "normalize": 0,
+   "padEnd": 1,
+   "padStart": 1,
+   "repeat": 1,
+   "replace": 2,
+   "replaceAll": 2,
+   "search": 1,
+   "slice": 2,
+   "small": 0,
+   "split": 2,
+   "startsWith": 1,
+   "strike": 0,
+   "sub": 0,
+   "substr": 2,
+   "substring": 2,
+   "sup": 0,
+   "toLocaleLowerCase": 0,
+   "toLocaleUpperCase": 0,
+   "toLowerCase": 0,
+   "toString": 0,
+   "toUpperCase": 0,
+   "toWellFormed": 0,
+   "trim": 0,
+   "trimEnd": 0,
+   "trimLeft": 0,
+   "trimRight": 0,
+   "trimStart": 0,
+   "valueOf": 0
+  },
+  "type": "string"
+ },
+ "lib_3DModel": {
+  "methods": {
+   "copy": 5,
+   "create": 3,
+   "delete": 2,
+   "get": 2,
+   "modify": 5,
+   "search": 3
+  },
+  "type": "object"
+ },
+ "lib_Cbb": {
+  "methods": {
+   "copy": 5,
+   "create": 4,
+   "delete": 2,
+   "get": 2,
+   "modify": 5,
+   "openProjectInEditor": 2,
+   "openSymbolInEditor": 3,
+   "search": 3
+  },
+  "type": "object"
+ },
+ "lib_Classification": {
+  "methods": {
+   "createPrimary": 3,
+   "createSecondary": 4,
+   "deleteByIndex": 1,
+   "deleteByUuid": 2,
+   "getAllClassificationTree": 2,
+   "getIndexByName": 4,
+   "getNameByIndex": 1,
+   "getNameByUuid": 4
+  },
+  "type": "object"
+ },
+ "lib_Device": {
+  "methods": {
+   "copy": 5,
+   "create": 3,
+   "delete": 2,
+   "get": 2,
+   "getByLcscIds": 2,
+   "modify": 7,
+   "search": 4,
+   "searchByProperties": 4
+  },
+  "type": "object"
+ },
+ "lib_Footprint": {
+  "methods": {
+   "copy": 5,
+   "create": 4,
+   "delete": 2,
+   "get": 2,
+   "getRenderImage": 1,
+   "modify": 5,
+   "openInEditor": 3,
+   "search": 3,
+   "searchByProperties": 3,
+   "updateDocumentSource": 3
+  },
+  "type": "object"
+ },
+ "lib_LibrariesList": {
+  "methods": {
+   "getAllLibrariesList": 0,
+   "getFavoriteLibraryUuid": 0,
+   "getPersonalLibraryUuid": 0,
+   "getProjectLibraryUuid": 0,
+   "getSystemLibraryUuid": 0,
+   "registerExtendLibrary": 2
+  },
+  "type": "object"
+ },
+ "lib_PanelLibrary": {
+  "methods": {
+   "copy": 5,
+   "create": 4,
+   "delete": 2,
+   "get": 2,
+   "modify": 5,
+   "openInEditor": 3,
+   "search": 3
+  },
+  "type": "object"
+ },
+ "lib_SelectControl": {
+  "methods": {
+   "getSelectedLibraryRowInfo": 0
+  },
+  "type": "object"
+ },
+ "lib_Symbol": {
+  "methods": {
+   "copy": 5,
+   "create": 5,
+   "delete": 2,
+   "get": 2,
+   "getRenderImage": 1,
+   "modify": 5,
+   "openInEditor": 3,
+   "search": 4,
+   "searchByProperties": 4,
+   "updateDocumentSource": 3
+  },
+  "type": "object"
+ },
+ "pcb_Document": {
+  "methods": {
+   "clearRouting": 0,
+   "convertCanvasOriginToDataOrigin": 2,
+   "convertDataOriginToCanvasOrigin": 2,
+   "getCalculatingRatlineStatus": 0,
+   "getCanvasOrigin": 0,
+   "getCurrentFilterConfiguration": 0,
+   "getPrimitiveAtPoint": 2,
+   "getPrimitivesInRegion": 4,
+   "importAutoLayoutJsonFile": 1,
+   "importAutoRouteJsonFile": 1,
+   "importAutoRouteSesFile": 1,
+   "importChanges": 1,
+   "navigateToCoordinates": 2,
+   "navigateToRegion": 4,
+   "save": 1,
+   "setCanvasOrigin": 2,
+   "startCalculatingRatline": 0,
+   "stopCalculatingRatline": 0,
+   "zoomToBoardOutline": 0
+  },
+  "type": "object"
+ },
+ "pcb_Drc": {
+  "methods": {
+   "addNetToEqualLengthNetGroup": 2,
+   "addNetToNetClass": 2,
+   "addPadPairToPadPairGroup": 2,
+   "check": 0,
+   "createDifferentialPair": 3,
+   "createEqualLengthNetGroup": 3,
+   "createNetClass": 3,
+   "createPadPairGroup": 2,
+   "deleteDifferentialPair": 1,
+   "deleteEqualLengthNetGroup": 1,
+   "deleteNetClass": 1,
+   "deletePadPairGroup": 1,
+   "deleteRuleConfiguration": 1,
+   "getAllDifferentialPairs": 0,
+   "getAllEqualLengthNetGroups": 0,
+   "getAllNetClasses": 0,
+   "getAllPadPairGroups": 0,
+   "getAllRuleConfigurations": 0,
+   "getCurrentRuleConfiguration": 0,
+   "getCurrentRuleConfigurationName": 0,
+   "getDefaultRuleConfigurationName": 0,
+   "getNetByNetRules": 0,
+   "getNetRules": 0,
+   "getPadPairGroupMinWireLength": 1,
+   "getRealTimeDrcStatus": 0,
+   "getRegionRules": 0,
+   "getRuleConfiguration": 1,
+   "modifyDifferentialPairName": 2,
+   "modifyDifferentialPairNegativeNet": 2,
+   "modifyDifferentialPairPositiveNet": 2,
+   "modifyEqualLengthNetGroupName": 2,
+   "modifyNetClassName": 2,
+   "modifyPadPairGroupName": 2,
+   "overwriteCurrentRuleConfiguration": 1,
+   "overwriteNetByNetRules": 1,
+   "overwriteNetRules": 1,
+   "overwriteRegionRules": 1,
+   "removeNetFromEqualLengthNetGroup": 2,
+   "removeNetFromNetClass": 2,
+   "removePadPairFromPadPairGroup": 2,
+   "renameRuleConfiguration": 2,
+   "saveRuleConfiguration": 2,
+   "setAsDefaultRuleConfiguration": 1,
+   "startRealTimeDrc": 0,
+   "stopRealTimeDrc": 0
+  },
+  "type": "object"
+ },
+ "pcb_Event": {
+  "methods": {
+   "addCrossProbeSelectEventListener": 2,
+   "addMouseEventListener": 3,
+   "addNetEventListener": 3,
+   "addPrimitiveEventListener": 3,
+   "addRealTimeDrcResultEventListener": 3,
+   "isEventListenerAlreadyExist": 1,
+   "removeEventListener": 1
+  },
+  "type": "object"
+ },
+ "pcb_Layer": {
+  "methods": {
+   "addCustomLayer": 0,
+   "deletePhysicalStackingConfiguration": 1,
+   "getAllLayers": 0,
+   "getAllPhysicalStackingConfigurations": 0,
+   "getCurrentLayer": 0,
+   "getCurrentPhysicalStackingConfiguration": 0,
+   "getCurrentPhysicalStackingConfigurationName": 0,
+   "getDefaultPhysicalStackingConfigurationName": 0,
+   "getPhysicalStackingConfiguration": 1,
+   "getTheNumberOfCopperLayers": 0,
+   "lockLayer": 1,
+   "modifyLayer": 2,
+   "overwriteCurrentPhysicalStackingConfiguration": 1,
+   "removeLayer": 1,
+   "renamePhysicalStackingConfiguration": 2,
+   "savePhysicalStackingConfiguration": 2,
+   "selectLayer": 1,
+   "setAsDefaultPhysicalStackingConfiguration": 1,
+   "setInactiveLayerDisplayMode": 0,
+   "setInactiveLayerTransparency": 1,
+   "setLayerColorConfiguration": 1,
+   "setLayerInvisible": 1,
+   "setLayerVisible": 1,
+   "setPcbType": 1,
+   "setTheNumberOfCopperLayers": 1,
+   "unlockLayer": 1
+  },
+  "type": "object"
+ },
+ "pcb_ManufactureData": {
+  "methods": {
+   "deleteBomTemplate": 1,
+   "get3DFile": 1,
+   "get3DShellFile": 1,
+   "getAltiumDesignerFile": 1,
+   "getAutoLayoutJsonFile": 1,
+   "getAutoRouteJsonFile": 1,
+   "getAutoRouteJsonFileForJRouter": 1,
+   "getBomFile": 1,
+   "getBomTemplateFile": 1,
+   "getBomTemplates": 0,
+   "getDsnFile": 1,
+   "getDxfFile": 3,
+   "getFlyingProbeTestFile": 1,
+   "getGerberFile": 1,
+   "getIdxFile": 1,
+   "getInteractiveBomFile": 1,
+   "getIpc2581CFile": 1,
+   "getIpcD356AFile": 1,
+   "getManufactureData": 0,
+   "getNetlistFile": 1,
+   "getOpenDatabaseDoublePlusFile": 1,
+   "getPadsFile": 1,
+   "getPcbInfoFile": 1,
+   "getPdfFile": 1,
+   "getPickAndPlaceFile": 1,
+   "getTestPointFile": 1,
+   "place3DShellOrder": 0,
+   "placeComponentsOrder": 0,
+   "placePcbOrder": 0,
+   "placeSmtComponentsOrder": 0,
+   "uploadBomTemplateFile": 2
+  },
+  "type": "object"
+ },
+ "pcb_MathPolygon": {
+  "methods": {
+   "calculateBBoxHeight": 1,
+   "calculateBBoxWidth": 1,
+   "calculateHeight": 1,
+   "calculateWidth": 1,
+   "convertImageToComplexPolygon": 3,
+   "createComplexPolygon": 1,
+   "createPolygon": 1,
+   "discretize": 2,
+   "splitPolygon": 0
+  },
+  "type": "object"
+ },
+ "pcb_Net": {
+  "methods": {
+   "getAllNetName": 0,
+   "getAllNets": 0,
+   "getAllNetsName": 0,
+   "getAllPrimitivesByNet": 2,
+   "getNet": 1,
+   "getNetColor": 1,
+   "getNetLength": 1,
+   "getNetlist": 0,
+   "highlightNet": 1,
+   "selectNet": 1,
+   "setNetColor": 2,
+   "setNetlist": 0,
+   "unhighlightAllNets": 0,
+   "unhighlightNet": 1,
+   "unselectAllNets": 0,
+   "unselectNet": 1
+  },
+  "type": "object"
+ },
+ "pcb_Primitive": {
+  "methods": {
+   "getPrimitiveBoardLine": 2,
+   "getPrimitiveByPrimitiveId": 1,
+   "getPrimitiveTypeByPrimitiveId": 1,
+   "getPrimitivesBBox": 1,
+   "getPrimitivesByPrimitiveId": 1
+  },
+  "type": "object"
+ },
+ "pcb_PrimitiveArc": {
+  "methods": {
+   "create": 10,
+   "delete": 1,
+   "get": 1,
+   "getAll": 3,
+   "getAllPrimitiveId": 3,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "pcb_PrimitiveAttribute": {
+  "methods": {
+   "create": 0,
+   "delete": 1,
+   "get": 1,
+   "getAll": 3,
+   "getAllPrimitiveId": 3,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "pcb_PrimitiveComponent": {
+  "methods": {
+   "create": 6,
+   "delete": 1,
+   "get": 1,
+   "getAll": 2,
+   "getAllPinsByPrimitiveId": 1,
+   "getAllPrimitiveId": 2,
+   "getAllPropertyNames": 0,
+   "modify": 2,
+   "placeComponentWithMouse": 1,
+   "placeFootprintWithMouse": 2
+  },
+  "type": "object"
+ },
+ "pcb_PrimitiveDimension": {
+  "methods": {
+   "create": 7,
+   "delete": 1,
+   "get": 1,
+   "getAll": 2,
+   "getAllPrimitiveId": 2,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "pcb_PrimitiveFill": {
+  "methods": {
+   "create": 6,
+   "delete": 1,
+   "get": 1,
+   "getAll": 3,
+   "getAllPrimitiveId": 3,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "pcb_PrimitiveImage": {
+  "methods": {
+   "create": 9,
+   "delete": 1,
+   "get": 1,
+   "getAll": 2,
+   "getAllPrimitiveId": 2,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "pcb_PrimitiveLine": {
+  "methods": {
+   "create": 8,
+   "delete": 1,
+   "get": 1,
+   "getAll": 3,
+   "getAllPrimitiveId": 3,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "pcb_PrimitiveObject": {
+  "methods": {
+   "create": 10,
+   "delete": 1,
+   "get": 1,
+   "getAll": 2,
+   "getAllPrimitiveId": 2,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "pcb_PrimitivePad": {
+  "methods": {
+   "create": 17,
+   "delete": 1,
+   "get": 1,
+   "getAll": 4,
+   "getAllPrimitiveId": 4,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "pcb_PrimitivePolyline": {
+  "methods": {
+   "create": 5,
+   "delete": 1,
+   "get": 1,
+   "getAll": 3,
+   "getAllPrimitiveId": 3,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "pcb_PrimitivePour": {
+  "methods": {
+   "create": 9,
+   "delete": 1,
+   "get": 1,
+   "getAll": 3,
+   "getAllPrimitiveId": 3,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "pcb_PrimitivePoured": {
+  "methods": {
+   "create": 0,
+   "delete": 1,
+   "get": 1,
+   "getAll": 0,
+   "getAllPrimitiveId": 0,
+   "modify": 0
+  },
+  "type": "object"
+ },
+ "pcb_PrimitiveRegion": {
+  "methods": {
+   "create": 6,
+   "delete": 1,
+   "get": 1,
+   "getAll": 3,
+   "getAllPrimitiveId": 3,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "pcb_PrimitiveString": {
+  "methods": {
+   "create": 13,
+   "delete": 1,
+   "get": 1,
+   "getAll": 2,
+   "getAllPrimitiveId": 2,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "pcb_PrimitiveVia": {
+  "methods": {
+   "create": 9,
+   "delete": 1,
+   "get": 1,
+   "getAll": 2,
+   "getAllPrimitiveId": 2,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "pcb_RayTracerEngine": {
+  "methods": {
+   "dispose": 0,
+   "init": 1
+  },
+  "type": "object"
+ },
+ "pcb_SelectControl": {
+  "methods": {
+   "clearSelected": 0,
+   "doCrossProbeSelect": 3,
+   "doCrossProbeSelectByObject": 3,
+   "doSelectPrimitives": 1,
+   "getAllSelectedPrimitives": 0,
+   "getAllSelectedPrimitives_PrimitiveId": 0,
+   "getCurrentMousePosition": 0,
+   "getSelectedPrimitives": 0
+  },
+  "type": "object"
+ },
+ "pnl_Document": {
+  "methods": {
+   "save": 0
+  },
+  "type": "object"
+ },
+ "sch_Document": {
+  "methods": {
+   "autoLayout": 1,
+   "autoRouting": 1,
+   "getCurrentFilterConfiguration": 0,
+   "getPrimitiveAtPoint": 2,
+   "getPrimitivesInRegion": 4,
+   "importChanges": 0,
+   "navigateToCoordinates": 2,
+   "navigateToRegion": 4,
+   "save": 0
+  },
+  "type": "object"
+ },
+ "sch_Drc": {
+  "methods": {
+   "check": 0
+  },
+  "type": "object"
+ },
+ "sch_Event": {
+  "methods": {
+   "addMouseEventListener": 3,
+   "addPrimitiveEventListener": 3,
+   "addSimulationEnginePullEventListener": 3,
+   "isEventListenerAlreadyExist": 1,
+   "removeEventListener": 1
+  },
+  "type": "object"
+ },
+ "sch_ManufactureData": {
+  "methods": {
+   "deleteBomTemplate": 1,
+   "getAssemblyVariantsConfigs": 0,
+   "getBomFile": 1,
+   "getBomTemplateFile": 1,
+   "getBomTemplates": 0,
+   "getExportDocumentFile": 1,
+   "getNetlistFile": 1,
+   "getSimulationNetlistFile": 1,
+   "placeComponentsOrder": 0,
+   "placeSmtComponentsOrder": 0,
+   "uploadBomTemplateFile": 2
+  },
+  "type": "object"
+ },
+ "sch_Net": {
+  "methods": {
+   "getAllNets": 0,
+   "getAllNetsName": 0,
+   "getCurrentProjectAllNets": 0,
+   "getNet": 1
+  },
+  "type": "object"
+ },
+ "sch_Netlist": {
+  "methods": {
+   "getNetlist": 0,
+   "setNetlist": 0
+  },
+  "type": "object"
+ },
+ "sch_Primitive": {
+  "methods": {
+   "getPrimitiveByPrimitiveId": 1,
+   "getPrimitiveTypeByPrimitiveId": 1,
+   "getPrimitivesBBox": 1,
+   "getPrimitivesByPrimitiveId": 1
+  },
+  "type": "object"
+ },
+ "sch_PrimitiveArc": {
+  "methods": {
+   "create": 10,
+   "delete": 1,
+   "get": 1,
+   "getAll": 0,
+   "getAllPrimitiveId": 0,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "sch_PrimitiveAttribute": {
+  "methods": {
+   "create": 0,
+   "createNetLabel": 3,
+   "delete": 0,
+   "get": 1,
+   "getAll": 1,
+   "getAllPrimitiveId": 1,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "sch_PrimitiveBus": {
+  "methods": {
+   "create": 5,
+   "delete": 1,
+   "get": 1,
+   "getAll": 0,
+   "getAllPrimitiveId": 0,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "sch_PrimitiveCircle": {
+  "methods": {
+   "create": 8,
+   "delete": 1,
+   "get": 1,
+   "getAll": 0,
+   "getAllPrimitiveId": 0,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "sch_PrimitiveComponent": {
+  "methods": {
+   "checkComponentType": 3,
+   "create": 8,
+   "createCbbSymbol": 5,
+   "createNetFlag": 6,
+   "createNetPort": 6,
+   "createShortCircuitFlag": 4,
+   "delete": 1,
+   "get": 1,
+   "getAll": 1,
+   "getAllPinsByPrimitiveId": 1,
+   "getAllPrimitiveId": 1,
+   "getAllPropertyNames": 0,
+   "getComponentDetail": 2,
+   "initUuid": 0,
+   "modify": 2,
+   "placeCbbSchematicPage": 3,
+   "placeComponentWithMouse": 2,
+   "placeSymbolWithMouse": 3,
+   "setNetFlagComponentUuid_AnalogGround": 1,
+   "setNetFlagComponentUuid_Ground": 1,
+   "setNetFlagComponentUuid_Power": 1,
+   "setNetFlagComponentUuid_ProtectGround": 1,
+   "setNetPortComponentUuid_BI": 1,
+   "setNetPortComponentUuid_IN": 1,
+   "setNetPortComponentUuid_OUT": 1
+  },
+  "type": "object"
+ },
+ "sch_PrimitiveObject": {
+  "methods": {
+   "create": 8,
+   "delete": 1,
+   "get": 1,
+   "getAll": 0,
+   "getAllPrimitiveId": 0,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "sch_PrimitivePin": {
+  "methods": {
+   "create": 9,
+   "delete": 1,
+   "get": 1,
+   "getAll": 0,
+   "getAllPrimitiveId": 0,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "sch_PrimitivePolygon": {
+  "methods": {
+   "create": 5,
+   "delete": 1,
+   "get": 1,
+   "getAll": 0,
+   "getAllPrimitiveId": 0,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "sch_PrimitiveRectangle": {
+  "methods": {
+   "create": 11,
+   "delete": 1,
+   "get": 1,
+   "getAll": 0,
+   "getAllPrimitiveId": 0,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "sch_PrimitiveText": {
+  "methods": {
+   "create": 11,
+   "delete": 1,
+   "get": 1,
+   "getAll": 0,
+   "getAllPrimitiveId": 0,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "sch_PrimitiveWire": {
+  "methods": {
+   "create": 5,
+   "delete": 1,
+   "get": 1,
+   "getAll": 1,
+   "getAllPrimitiveId": 1,
+   "modify": 2
+  },
+  "type": "object"
+ },
+ "sch_SelectControl": {
+  "methods": {
+   "clearSelected": 0,
+   "doCrossProbeSelect": 3,
+   "doSelectPrimitives": 1,
+   "getAllSelectedPrimitives": 0,
+   "getAllSelectedPrimitives3": 0,
+   "getAllSelectedPrimitives_PrimitiveId": 0,
+   "getCurrentMousePosition": 0,
+   "getSelectedPrimitives": 0,
+   "getSelectedPrimitives_PrimitiveId": 0
+  },
+  "type": "object"
+ },
+ "sch_SimulationEngine": {
+  "methods": {
+   "pushData": 2
+  },
+  "type": "object"
+ },
+ "sch_Utils": {
+  "methods": {
+   "splitLines": 1
+  },
+  "type": "object"
+ },
+ "sys_ClientUrl": {
+  "methods": {
+   "request": 1
+  },
+  "type": "object"
+ },
+ "sys_Dialog": {
+  "methods": {
+   "createReactComponentizationDialogInterface": 2,
+   "insertScriptToDialog": 2,
+   "showConfirmationMessage": 1,
+   "showInformationMessage": 1,
+   "showInputDialog": 2,
+   "showSelectDialog": 3
+  },
+  "type": "object"
+ },
+ "sys_Environment": {
+  "methods": {
+   "getEditorCompliedDate": 0,
+   "getEditorCurrentVersion": 0,
+   "getUserInfo": 0,
+   "isClient": 0,
+   "isEasyEDAProEdition": 0,
+   "isHalfOfflineMode": 0,
+   "isJLCEDAProEdition": 0,
+   "isOfflineMode": 0,
+   "isOnlineMode": 0,
+   "isProPrivateEdition": 0,
+   "isWeb": 0,
+   "setKeepProjectHasOnlyOneBoard": 0
+  },
+  "type": "object"
+ },
+ "sys_FileManager": {
+  "methods": {
+   "extractLibInfo": 1,
+   "extractProjectInfo": 1,
+   "getCbbFileByCbbUuid": 3,
+   "getDeviceFileByDeviceUuid": 3,
+   "getDocumentFile": 3,
+   "getDocumentFootprintSources": 0,
+   "getDocumentSource": 0,
+   "getFootprintFileByFootprintUuid": 3,
+   "getPanelLibraryFileByPanelLibraryUuid": 3,
+   "getProjectFile": 3,
+   "getProjectFileByProjectUuid": 4,
+   "getSymbolFileBySymbolUuid": 3,
+   "importProjectByProjectFile": 1,
+   "setDocumentSource": 1
+  },
+  "type": "object"
+ },
+ "sys_FileSystem": {
+  "methods": {
+   "deleteFileInFileSystem": 1,
+   "getDocumentsPath": 0,
+   "getEdaPath": 0,
+   "getExtensionFile": 1,
+   "getLibrariesPaths": 0,
+   "getProjectsPaths": 0,
+   "listFilesOfFileSystem": 1,
+   "openReadFileDialog": 1,
+   "openReadFolderDialog": 0,
+   "readFileFromFileSystem": 1,
+   "saveFile": 2,
+   "saveFileToFileSystem": 3
+  },
+  "type": "object"
+ },
+ "sys_FontManager": {
+  "methods": {
+   "addFont": 1,
+   "deleteFont": 1,
+   "getFontsList": 0
+  },
+  "type": "object"
+ },
+ "sys_FormatConversion": {
+  "methods": {
+   "convertAltiumDesignerLibrariesToEasyEDAMultiFiles": 1,
+   "convertAltiumDesignerLibrariesToEasyEDASingleFile": 1,
+   "convertDisaLibrariesToEasyEDAMultiFiles": 1,
+   "convertDisaLibrariesToEasyEDASingleFile": 1
+  },
+  "type": "object"
+ },
+ "sys_HeaderMenu": {
+  "methods": {
+   "insertHeaderMenus": 1,
+   "insertSystemHeaderMenuItem": 3,
+   "insertSystemHeaderMenus": 1,
+   "removeHeaderMenus": 0,
+   "removeSystemHeaderMenuItem": 1,
+   "replaceHeaderMenus": 1
+  },
+  "type": "object"
+ },
+ "sys_I18n": {
+  "methods": {
+   "addLanguageChangedEventListener": 3,
+   "getAllSupportedLanguages": 0,
+   "getCurrentLanguage": 0,
+   "importMultilingual": 2,
+   "importMultilingualLanguage": 3,
+   "importMultilingualNamespace": 2,
+   "isEventListenerAlreadyExist": 1,
+   "isLanguageSupported": 1,
+   "removeEventListener": 1,
+   "text": 3
+  },
+  "type": "object"
+ },
+ "sys_IFrame": {
+  "methods": {
+   "closeIFrame": 1,
+   "hideIFrame": 1,
+   "isIFrameAlreadyExist": 1,
+   "openIFrame": 1,
+   "showIFrame": 1
+  },
+  "type": "object"
+ },
+ "sys_LoadingAndProgressBar": {
+  "methods": {
+   "destroyLoading": 0,
+   "destroyProgressBar": 0,
+   "showLoading": 0,
+   "showProgressBar": 0
+  },
+  "type": "object"
+ },
+ "sys_Log": {
+  "methods": {
+   "add": 1,
+   "clear": 0,
+   "export": 1,
+   "find": 2,
+   "sort": 1
+  },
+  "type": "object"
+ },
+ "sys_Message": {
+  "methods": {
+   "removeFollowMouseTip": 1,
+   "showFollowMouseTip": 2,
+   "showToastMessage": 1
+  },
+  "type": "object"
+ },
+ "sys_MessageBox": {
+  "methods": {
+   "showConfirmationMessage": 1,
+   "showInformationMessage": 1
+  },
+  "type": "object"
+ },
+ "sys_MessageBus": {
+  "methods": {
+   "createPrivateMessageBus": 0,
+   "publish": 2,
+   "publishPublic": 2,
+   "pull": 2,
+   "pullAsync": 1,
+   "pullAsyncPublic": 1,
+   "pullPublic": 2,
+   "push": 2,
+   "pushPublic": 2,
+   "removePrivateMessageBus": 0,
+   "rpcCall": 3,
+   "rpcCallPublic": 3,
+   "rpcService": 2,
+   "rpcServicePublic": 2,
+   "subscribe": 2,
+   "subscribeOnce": 2,
+   "subscribeOncePublic": 2,
+   "subscribePublic": 2
+  },
+  "type": "object"
+ },
+ "sys_PanelControl": {
+  "methods": {
+   "closeBottomPanel": 0,
+   "closeLeftPanel": 0,
+   "closeRightPanel": 0,
+   "isBottomPanelLocked": 0,
+   "isLeftPanelLocked": 0,
+   "isRightPanelLocked": 0,
+   "openBottomPanel": 1,
+   "openLeftPanel": 1,
+   "openRightPanel": 1,
+   "toggleBottomPanelLockState": 1,
+   "toggleLeftPanelLockState": 1,
+   "toggleRightPanelLockState": 1
+  },
+  "type": "object"
+ },
+ "sys_RightClickMenu": {
+  "methods": {
+   "changeMenu": 2
+  },
+  "type": "object"
+ },
+ "sys_Setting": {
+  "methods": {
+   "restoreDefault": 0
+  },
+  "type": "object"
+ },
+ "sys_ShortcutKey": {
+  "methods": {
+   "getShortcutKeys": 0,
+   "registerShortcutKey": 3,
+   "unregisterShortcutKey": 1
+  },
+  "type": "object"
+ },
+ "sys_Storage": {
+  "methods": {
+   "clearExtensionAllUserConfigs": 0,
+   "deleteExtensionUserConfig": 1,
+   "getExtensionAllUserConfigs": 0,
+   "getExtensionUserConfig": 1,
+   "setExtensionAllUserConfigs": 1,
+   "setExtensionUserConfig": 2
+  },
+  "type": "object"
+ },
+ "sys_Timer": {
+  "methods": {
+   "clearIntervalTimer": 1,
+   "clearTimeoutTimer": 1,
+   "setIntervalTimer": 3,
+   "setTimeoutTimer": 3
+  },
+  "type": "object"
+ },
+ "sys_ToastMessage": {
+  "methods": {
+   "showMessage": 1
+  },
+  "type": "object"
+ },
+ "sys_Tool": {
+  "methods": {
+   "netlistComparison": 2,
+   "pcbComparison": 2,
+   "schematicComparison": 2
+  },
+  "type": "object"
+ },
+ "sys_Unit": {
+  "methods": {
+   "getFrontendDataUnit": 0,
+   "inchToMil": 1,
+   "inchToMm": 1,
+   "milToInch": 1,
+   "milToMm": 1,
+   "mmToInch": 1,
+   "mmToMil": 1
+  },
+  "type": "object"
+ },
+ "sys_WebSocket": {
+  "methods": {
+   "close": 4,
+   "register": 5,
+   "send": 3
+  },
+  "type": "object"
+ },
+ "sys_Window": {
+  "methods": {
+   "addEventListener": 3,
+   "getCurrentTheme": 0,
+   "getUrlAnchor": 0,
+   "getUrlParam": 1,
+   "open": 1,
+   "openUI": 2,
+   "removeEventListener": 1,
+   "urlPushState": 1,
+   "urlReplaceState": 1
+  },
+  "type": "object"
+ }
+}

@@ -1,0 +1,190 @@
+  "sch_PrimitiveAttribute": {
+   "methods": [
+    {
+     "arity": 0,
+     "name": "create"
+    },
+    {
+     "arity": 3,
+     "name": "createNetLabel"
+    },
+    {
+     "arity": 0,
+     "name": "delete"
+    },
+    {
+     "arity": 1,
+     "name": "get"
+    },
+    {
+     "arity": 1,
+     "name": "getAll"
+    },
+    {
+     "arity": 1,
+     "name": "getAllPrimitiveId"
+    },
+    {
+     "arity": 2,
+     "name": "modify"
+    }
+   ],
+   "type": "object"
+  },
+  "sch_PrimitiveBus": {
+   "methods": [
+    {
+     "arity": 5,
+     "name": "create"
+    },
+    {
+     "arity": 1,
+     "name": "delete"
+    },
+    {
+     "arity": 1,
+     "name": "get"
+    },
+    {
+     "arity": 0,
+     "name": "getAll"
+    },
+    {
+     "arity": 0,
+     "name": "getAllPrimitiveId"
+    },
+    {
+     "arity": 2,
+     "name": "modify"
+    }
+   ],
+   "type": "object"
+  },
+  "sch_PrimitiveCircle": {
+   "methods": [
+    {
+     "arity": 8,
+     "name": "create"
+    },
+    {
+     "arity": 1,
+     "name": "delete"
+    },
+    {
+     "arity": 1,
+     "name": "get"
+    },
+    {
+     "arity": 0,
+     "name": "getAll"
+    },
+    {
+     "arity": 0,
+     "name": "getAllPrimitiveId"
+    },
+    {
+     "arity": 2,
+     "name": "modify"
+    }
+   ],
+   "type": "object"
+  },
+  "sch_PrimitiveComponent": {
+   "methods": [
+    {
+     "arity": 3,
+     "name": "checkComponentType"
+    },
+    {
+     "arity": 8,
+     "name": "create"
+    },
+    {
+     "arity": 5,
+     "name": "createCbbSymbol"
+    },
+    {
+     "arity": 6,
+     "name": "createNetFlag"
+    },
+    {
+     "arity": 6,
+     "name": "createNetPort"
+    },
+    {
+     "arity": 4,
+     "name": "createShortCircuitFlag"
+    },
+    {
+     "arity": 1,
+     "name": "delete"
+    },
+    {
+     "arity": 1,
+     "name": "get"
+    },
+    {
+     "arity": 1,
+     "name": "getAll"
+    },
+    {
+     "arity": 1,
+     "name": "getAllPinsByPrimitiveId"
+    },
+    {
+     "arity": 1,
+     "name": "getAllPrimitiveId"
+    },
+    {
+     "arity": 0,
+     "name": "getAllPropertyNames"
+    },
+    {
+     "arity": 2,
+     "name": "getComponentDetail"
+    },
+    {
+     "arity": 0,
+     "name": "initUuid"
+    },
+    {
+     "arity": 2,
+     "name": "modify"
+    },
+    {
+     "arity": 3,
+     "name": "placeCbbSchematicPage"
+    },
+    {
+     "arity": 2,
+     "name": "placeComponentWithMouse"
+    },
+    {
+     "arity": 3,
+     "name": "placeSymbolWithMouse"
+    },
+    {
+     "arity": 1,
+     "name": "setNetFlagComponentUuid_AnalogGround"
+    },
+    {
+     "arity": 1,
+     "name": "setNetFlagComponentUuid_Ground"
+    },
+    {
+     "arity": 1,
+     "name": "setNetFlagComponentUuid_Power"
+    },
+    {
+     "arity": 1,
+     "name": "setNetFlagComponentUuid_ProtectGround"
+    },
+    {
+     "arity": 1,
+     "name": "setNetPortComponentUuid_BI"
+    },
+    {
+     "arity": 1,
+     "name": "setNetPortComponentUuid_IN"
+    },
+    {
