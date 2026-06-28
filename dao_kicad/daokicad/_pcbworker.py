@@ -29,12 +29,21 @@ def _v(x_mm, y_mm):
 
 
 def _layer(name):
+    # an explicit integer layer id round-trips with full fidelity — used when
+    # reconstructing routing from a finished board (inner copper In3..In30 must
+    # land on the right layer, not collapse to F.Cu).
+    if isinstance(name, int):
+        return name
     table = {
         "F.Cu": pcbnew.F_Cu, "B.Cu": pcbnew.B_Cu,
-        "In1.Cu": pcbnew.In1_Cu, "In2.Cu": pcbnew.In2_Cu,
         "F.SilkS": pcbnew.F_SilkS, "B.SilkS": pcbnew.B_SilkS,
         "Edge.Cuts": pcbnew.Edge_Cuts,
     }
+    # all inner copper layers (In1.Cu .. In30.Cu) by name
+    for i in range(1, 31):
+        c = getattr(pcbnew, f"In{i}_Cu", None)
+        if c is not None:
+            table[f"In{i}.Cu"] = c
     return table.get(name, pcbnew.F_Cu)
 
 

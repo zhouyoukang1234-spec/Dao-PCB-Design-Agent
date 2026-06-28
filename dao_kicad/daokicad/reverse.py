@@ -76,14 +76,36 @@ def extract(pcb_path: str | Path) -> dict[str, Any]:
                                       key=lambda kv: -len(kv[1]))]
 
     # ---- copper / routing recovered straight from the geometry ----
+    # tracks and vias are recovered with full fidelity (absolute mm coords,
+    # integer layer ids, width, net name) so a rebuild can reconstruct the
+    # finished board's *routing*, not just its connectivity + placement.
     track_len_nm = 0
     track_count = via_count = 0
+    tracks_geom: list[dict[str, Any]] = []
+    vias_geom: list[dict[str, Any]] = []
     for t in board.Tracks():
         if t.Type() == pcbnew.PCB_VIA_T:
             via_count += 1
+            pos = t.GetPosition()
+            # KiCad 10 vias are padstacks: GetWidth() needs a layer (asserts
+            # otherwise). Read the diameter on the via's top copper layer.
+            vias_geom.append({
+                "at": [_mm(pos.x), _mm(pos.y)],
+                "drill": _mm(t.GetDrillValue()),
+                "size": _mm(t.GetWidth(t.TopLayer())),
+                "net": t.GetNetname() or None,
+            })
         else:
             track_count += 1
             track_len_nm += t.GetLength()
+            s, e = t.GetStart(), t.GetEnd()
+            tracks_geom.append({
+                "start": [_mm(s.x), _mm(s.y)],
+                "end": [_mm(e.x), _mm(e.y)],
+                "width": _mm(t.GetWidth()),
+                "layer": t.GetLayer(),
+                "net": t.GetNetname() or None,
+            })
 
     bds = board.GetDesignSettings()
     bbox = board.GetBoardEdgesBoundingBox()
@@ -116,6 +138,10 @@ def extract(pcb_path: str | Path) -> dict[str, Any]:
             "tracks": track_count,
             "vias": via_count,
             "track_length_mm": round(_mm(track_len_nm), 2),
+        },
+        "routing_geometry": {
+            "tracks": tracks_geom,
+            "vias": vias_geom,
         },
         "counts": {
             "footprints": len(footprints),
@@ -163,13 +189,18 @@ def harvest_footprints(pcb_path: str | Path,
 
 
 def roundtrip(pcb_path: str | Path, out_path: str | Path,
-              harvest: bool = True) -> dict[str, Any]:
+              harvest: bool = True, route: bool = True) -> dict[str, Any]:
     """Recover a finished board's source, rebuild from it, and diff.
 
     extract → feed the recovered spec back through the build engine → re-extract
     the rebuild → compare connectivity. Any divergence is a defect in our own
     extract/rebuild chain. Footprints resolve against the original project's
     fp-lib-table so real (non-standard-library) parts build.
+
+    When ``route`` is set the recovered track/via geometry is folded into the
+    rebuild spec, so the rebuilt board reconstructs the original's *routing*
+    (not just its connectivity + placement); the diff then also reports how
+    faithfully tracks/vias were reproduced.
     """
     from . import fplib as _fplib
     from .live import LiveKiCad
@@ -178,6 +209,9 @@ def roundtrip(pcb_path: str | Path, out_path: str | Path,
     spec = dict(src["spec"])
     spec["footprints"] = [dict(f) for f in spec["footprints"]]
     spec["layers"] = src["stackup"]["copper_layers"]
+    if route:
+        spec["tracks"] = src["routing_geometry"]["tracks"]
+        spec["vias"] = src["routing_geometry"]["vias"]
 
     if harvest:
         # recover the part library from the product itself, then re-point every
@@ -216,6 +250,12 @@ def roundtrip(pcb_path: str | Path, out_path: str | Path,
         "healed_footprints": len(subs),
         "skipped_connections": len(build.get("skipped_connections") or []),
         "diff": diff,
+        "routing": {
+            "original": src["routing"],
+            "rebuilt": rebuilt["routing"],
+            "tracks_identical": src["routing"]["tracks"] == rebuilt["routing"]["tracks"],
+            "vias_identical": src["routing"]["vias"] == rebuilt["routing"]["vias"],
+        } if route else None,
     }
 
 
