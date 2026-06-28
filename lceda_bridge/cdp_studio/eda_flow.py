@@ -316,8 +316,11 @@ class Flow:
             raise FlowError("board_outline_rect: " + str(o.get("err") or o))
         return {"id": o.get("id"), "layer": o.get("layer")}
 
-    def auto_board_outline(self, margin=60):
+    def auto_board_outline(self, margin=100):
         """从 PCB 焊盘 bbox **自动**算出并程序化创建矩形板框(无需 GUI、无需手填尺寸)。
+
+        margin 默认 100mil:给 TH 焊盘留足 JLC「板边到插孔 ≥11.8mil」余量。早期 60mil 在大插孔焊盘
+        贴近 bbox 边时余量被焊盘半径吃掉,会偶发「Board Outline to TH Pad < 11.8mil」(见第二十章)。
 
         坐标系坑(已硬验证):矩形 ["R",x,y,w,h,..] 的 (x,y) 是**左上角**,h 向 **−y**(向下)
         延伸。故 top-left 的 y 取 **max_pad_y + margin**(不是 min),否则板框落到器件**下方**、
