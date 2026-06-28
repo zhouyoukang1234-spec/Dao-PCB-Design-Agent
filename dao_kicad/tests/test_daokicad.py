@@ -347,6 +347,37 @@ def test_worker_timeout_returns_clean_error(monkeypatch):
     assert r["op"] == "dsn" and r["timeout"] == 7
 
 
+# ── freerouting tolerates paths with spaces (it re-splits argv on ws) ──
+def test_route_dsn_handles_space_in_path(tmp_path, monkeypatch):
+    """freerouting's CLI truncates -de/-do at the first space; route_dsn must
+    route via a space-free temp dir and copy the SES back to the spaced path."""
+    from daokicad import route as _route
+
+    proj = tmp_path / "sonde xilinx"
+    proj.mkdir()
+    dsn = proj / "sonde xilinx.dsn"
+    dsn.write_text("(pcb dummy)")
+    ses = proj / "sonde xilinx.ses"
+
+    seen = {}
+
+    def fake_run(java, jar, run_dsn, run_ses, timeout, passes):
+        seen["dsn"] = str(run_dsn)
+        seen["ses"] = str(run_ses)
+        Path(run_ses).write_text("(session routed)")  # pretend freerouting wrote it
+        return ("ok", "", "")
+
+    monkeypatch.setattr(_route, "find_java", lambda: "java")
+    monkeypatch.setattr(_route, "find_freerouting", lambda: tmp_path / "fr.jar")
+    (tmp_path / "fr.jar").write_text("jar")
+    monkeypatch.setattr(_route, "_run_freerouting", fake_run)
+
+    r = _route.route_dsn(dsn, ses, timeout=10, passes=3)
+    assert r.ok and Path(r.ses).read_text() == "(session routed)"
+    assert " " not in seen["dsn"] and " " not in seen["ses"]  # ran space-free
+    assert ses.is_file()  # result copied back to the spaced destination
+
+
 # ── IPC channel degrades gracefully when no live KiCad ────────────────
 def test_ipc_session_no_gui_is_graceful():
     from daokicad import ipc

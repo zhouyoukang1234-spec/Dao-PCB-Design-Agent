@@ -74,7 +74,13 @@ def available() -> bool:
 
 def route_dsn(dsn: str | Path, ses: str | Path, *,
               timeout: int = 600, passes: int = 10) -> RouteResult:
-    """Route a Specctra .dsn into a .ses using freerouting (headless)."""
+    """Route a Specctra .dsn into a .ses using freerouting (headless).
+
+    freerouting's own CLI re-splits the ``-de``/``-do`` values on whitespace, so
+    a path containing a space (e.g. KiCad's "sonde xilinx" demo, or any "My
+    Project" folder) is silently truncated and the route fails. When either path
+    contains a space we route inside a space-free temp dir and copy the SES back.
+    """
     java = find_java()
     jar = find_freerouting()
     if not java:
@@ -83,6 +89,37 @@ def route_dsn(dsn: str | Path, ses: str | Path, *,
         return RouteResult(False, None, "", "", "freerouting.jar not found")
     dsn, ses = Path(dsn), Path(ses)
     ses.parent.mkdir(parents=True, exist_ok=True)
+
+    import tempfile
+
+    if " " in str(dsn) or " " in str(ses) or " " in str(jar):
+        tmp = Path(tempfile.mkdtemp(prefix="dao_fr_"))
+        if " " in str(tmp):  # pathological temp root — last-ditch fallback
+            tmp = Path.cwd() / ".dao_fr_route"
+            tmp.mkdir(parents=True, exist_ok=True)
+        run_dsn, run_ses = tmp / "route.dsn", tmp / "route.ses"
+        run_jar = jar
+        if " " in str(jar):
+            run_jar = tmp / "freerouting.jar"
+            shutil.copy(str(jar), str(run_jar))
+        shutil.copy(str(dsn), str(run_dsn))
+        res = _run_freerouting(java, run_jar, run_dsn, run_ses, timeout, passes)
+        if run_ses.is_file() and run_ses.stat().st_size > 0:
+            shutil.copy(str(run_ses), str(ses))
+        shutil.rmtree(tmp, ignore_errors=True)
+        ok = ses.is_file() and ses.stat().st_size > 0
+        return RouteResult(ok, str(ses) if ok else None, res[0], res[1],
+                           "" if ok else (res[2] or "no ses produced"))
+
+    res = _run_freerouting(java, jar, dsn, ses, timeout, passes)
+    ok = ses.is_file() and ses.stat().st_size > 0
+    return RouteResult(ok, str(ses) if ok else None, res[0], res[1],
+                       "" if ok else (res[2] or "no ses produced"))
+
+
+def _run_freerouting(java, jar, dsn: Path, ses: Path, timeout: int,
+                     passes: int):
+    """Invoke freerouting headless. Returns (stdout, stderr, reason)."""
     cmd = [java, "-jar", str(jar),
            "-de", str(dsn), "-do", str(ses),
            "--gui.enabled=false",
@@ -90,8 +127,5 @@ def route_dsn(dsn: str | Path, ses: str | Path, *,
     try:
         cp = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired as e:
-        return RouteResult(ses.is_file(), str(ses) if ses.is_file() else None,
-                           e.stdout or "", "timeout", "timeout")
-    ok = ses.is_file() and ses.stat().st_size > 0
-    return RouteResult(ok, str(ses) if ok else None, cp.stdout, cp.stderr,
-                       "" if ok else "no ses produced")
+        return (e.stdout or "", "timeout", "timeout")
+    return (cp.stdout, cp.stderr, "")
