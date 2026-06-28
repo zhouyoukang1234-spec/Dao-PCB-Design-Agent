@@ -290,6 +290,35 @@ def test_reverse_roundtrip_preserves_connectivity(tmp_path):
 
 
 @needs_script
+def test_reverse_reconstructs_routing_on_inner_layers(tmp_path):
+    """Recovered track/via geometry must rebuild faithfully — including copper
+    on inner layers, which collapsed onto F.Cu before _layer learned every
+    In*.Cu id (the defect routing reconstruction on multilayer boards exposed)."""
+    import pcbnew
+    from daokicad import reverse
+
+    live = LiveKiCad(_KENV)
+    spec = dna.make("voltage_divider")
+    spec["layers"] = 4
+    # an inner-layer track + a via: the round-trip must place them exactly.
+    spec["tracks"] = [{"start": [30.0, 30.0], "end": [40.0, 30.0],
+                       "width": 0.25, "layer": "In1.Cu"}]
+    spec["vias"] = [{"at": [40.0, 30.0], "drill": 0.3, "size": 0.6}]
+    pcb = tmp_path / "routed.kicad_pcb"
+    assert live.build_board(spec, pcb)["ok"]
+
+    rep = reverse.extract(pcb)
+    geo = rep["routing_geometry"]
+    assert rep["routing"]["vias"] == 1
+    inner = [t for t in geo["tracks"] if t["layer"] == pcbnew.In1_Cu]
+    assert inner, geo["tracks"]                 # track stayed on In1.Cu, not F.Cu
+
+    r = reverse.roundtrip(pcb, tmp_path / "rt.kicad_pcb")
+    assert r["ok"] and r["diff"]["connectivity_identical"], r
+    assert r["routing"]["tracks_identical"] and r["routing"]["vias_identical"], r["routing"]
+
+
+@needs_script
 def test_reverse_harvest_writes_kicad_mods(tmp_path):
     """harvest_footprints must recover a .kicad_mod for every unique footprint
     straight from the board, independent of any installed library."""
