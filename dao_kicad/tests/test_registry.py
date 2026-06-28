@@ -113,3 +113,34 @@ def test_skidl_adapter_wires_symbol_dir_and_returns_netlist(tmp_path, monkeypatc
     assert out["ok"] and Path(out["netlist"]) == net and net.is_file()
     assert seen["cmd"][2] == str(net)                         # netlist path passed as argv
     assert seen["env"].get("KICAD_SYMBOL_DIR") == str(FakeEnv.symbols)  # lib dir wired
+
+
+def test_kikit_adapter_builds_panelize_invocation(tmp_path, monkeypatch):
+    """KiKit panelize must be driven as a subprocess of KiCad's python with a
+    grid layout, and report the panel it produced — mocked, no KiKit needed."""
+    from daokicad import adapters as A
+    from daokicad import env as _env
+
+    pcb = tmp_path / "b.kicad_pcb"
+    pcb.write_text("(kicad_pcb)")
+    panel = tmp_path / "panel.kicad_pcb"
+
+    class FakeEnv:
+        python = tmp_path / "py.exe"
+    monkeypatch.setattr(_env, "detect", lambda *a, **k: FakeEnv())
+
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen["cmd"] = cmd
+        Path(cmd[-1]).write_text("(kicad_pcb panel)")
+
+        class CP:
+            stdout = stderr = ""
+        return CP()
+    monkeypatch.setattr(__import__("subprocess"), "run", fake_run)
+
+    out = A._kikit_panelize(pcb, panel, rows=2, cols=3)
+    assert out["ok"] and Path(out["panel"]) == panel and panel.is_file()
+    assert seen["cmd"][1:4] == ["-m", "kikit.ui", "panelize"]
+    assert any("rows: 2; cols: 3" in a for a in seen["cmd"])  # grid override built

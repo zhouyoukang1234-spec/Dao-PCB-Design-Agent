@@ -117,6 +117,34 @@ def _skidl(script, netlist=None, *, symbol_dir=None, timeout=120, **kw) -> dict:
             "reason": "" if ok else (cp.stderr or cp.stdout)[-300:]}
 
 
+def _kikit_panelize(pcb, out=None, *, rows=2, cols=2, space="2mm",
+                    frame=True, mousebites=True, timeout=180, **kw) -> dict:
+    """Panelize a board into an rows×cols array (inherited: KiKit).
+
+    Wraps ``python -m kikit.ui panelize`` (KiKit is GPL → invoked as a
+    subprocess, never linked) using KiCad's own interpreter.
+    """
+    import subprocess
+    from . import env
+    pcb = Path(pcb)
+    out = Path(out) if out else pcb.with_name(pcb.stem + "_panel.kicad_pcb")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    py = env.detect().python
+    if not py:
+        return {"ok": False, "reason": "KiCad bundled python not found"}
+    cmd = [str(py), "-m", "kikit.ui", "panelize",
+           "-l", f"grid; rows: {rows}; cols: {cols}; space: {space}"]
+    if mousebites:
+        cmd += ["-c", "mousebites; spacing: 0.8mm; offset: 0.2mm"]
+    if frame:
+        cmd += ["-r", "frame; width: 5mm; space: 2mm"]
+    cmd += [str(pcb), str(out)]
+    cp = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    ok = out.is_file() and out.stat().st_size > 0
+    return {"ok": ok, "panel": str(out) if ok else None,
+            "reason": "" if ok else (cp.stderr or cp.stdout)[-300:]}
+
+
 def default_registry() -> Registry:
     """Build the registry of every capability backend this project knows about.
 
@@ -235,7 +263,7 @@ def default_registry() -> Registry:
         "kikit", "panelize",
         "KiKit panelization/array for production.",
         "MIT", "https://github.com/yaqwsx/KiKit",
-        Probe("python", module="kikit"), priority=60))
+        Probe("python", module="kikit"), priority=60, invoke=_kikit_panelize))
 
     # ---- sourcing ----
     reg.register(Backend(
