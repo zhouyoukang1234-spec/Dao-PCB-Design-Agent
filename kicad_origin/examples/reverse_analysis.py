@@ -43,7 +43,8 @@ def _gold_drc(pcb_path: str, out_json: str) -> Dict[str, Any]:
     return res.data if res.ok else {"error": res.error}
 
 
-def analyze(pcb_path: str, out_dir: str = "output/reverse") -> Dict[str, Any]:
+def analyze(pcb_path: str, out_dir: str = "output/reverse",
+            roundtrip_max_footprints: int = 400) -> Dict[str, Any]:
     out = Path(out_dir); out.mkdir(parents=True, exist_ok=True)
     report: Dict[str, Any] = {"target": pcb_path}
 
@@ -60,13 +61,24 @@ def analyze(pcb_path: str, out_dir: str = "output/reverse") -> Dict[str, Any]:
         "rules": spec["rules"],
     }
 
-    # 2) roundtrip fidelity
-    t = time.time()
-    rt = reverse.roundtrip(pcb_path, str(out / "rebuilt.kicad_pcb"))
-    report["roundtrip"] = {
-        "seconds": round(time.time() - t, 2),
-        "diff": rt.get("diff"),
-    }
+    # 2) roundtrip fidelity — 重建是经 pcbnew 实摆全部封装+布线几何, 超大板
+    #    (如 jetson 1125 封装) 的重建本身极重; 用封装数阈值守卫, 避免单板阻塞
+    #    整批聚合, 同时仍保留 extract + DRC + gold 的缺陷对照证据。
+    n_fps = (spec.get("counts") or {}).get("footprints", 0)
+    if roundtrip_max_footprints and n_fps > roundtrip_max_footprints:
+        report["roundtrip"] = {
+            "skipped": "large_board",
+            "footprints": n_fps,
+            "note": f"封装数 {n_fps} > {roundtrip_max_footprints}, 跳过重型重建 roundtrip",
+            "diff": None,
+        }
+    else:
+        t = time.time()
+        rt = reverse.roundtrip(pcb_path, str(out / "rebuilt.kicad_pcb"))
+        report["roundtrip"] = {
+            "seconds": round(time.time() - t, 2),
+            "diff": rt.get("diff"),
+        }
 
     # 3) our pure-Python kernel on the same real board
     from kicad_origin.pcb.board import Board
@@ -98,7 +110,9 @@ def main() -> int:
     if not pcb or not Path(pcb).exists():
         print("未找到目标板 (需 KiCad demo 或显式传入路径)。")
         return 2
-    r = analyze(pcb)
+    # 可选第二参: 输出目录 (供批量子进程隔离/超时守卫复用)
+    out_dir = sys.argv[2] if len(sys.argv) > 2 else "output/reverse"
+    r = analyze(pcb, out_dir=out_dir)
     print(f"=== 逆向解构: {Path(pcb).name} ===")
     e = r["extract"]
     print(f"[extract] {e['seconds']}s  {e['counts']}  routing={e['routing']}")

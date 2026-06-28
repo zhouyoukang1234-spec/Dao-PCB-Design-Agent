@@ -326,6 +326,34 @@ def main() -> int:
                   f"our DRC errors={rep.error_count} (gold=0)")
         else:
             skip("reverse.complex_hierarchy", "demo not found")
+        # stickhub: 钢网开孔 (晶振 Y1 num='' 仅 *.Paste) + 正反面异层焊盘,
+        # gold kicad-cli 判 0; 铜层过滤 + 层共享判定修复后 R001/R005 应零假阳。
+        demo2 = None
+        if root:
+            c2 = (Path(root) / "share" / "kicad" / "demos" /
+                  "stickhub" / "StickHub.kicad_pcb")
+            demo2 = str(c2) if c2.exists() else None
+        if demo2:
+            import collections as _c
+            rep2 = DRCEngine(Board.load(demo2)).run()
+            by = _c.Counter(v.rule for v in rep2.violations)
+            check("reverse.stickhub no R001/R005 false-positive",
+                  by.get("R001", 0) == 0 and by.get("R005", 0) == 0,
+                  f"R001={by.get('R001',0)} R005={by.get('R005',0)} (gold=0)")
+        else:
+            skip("reverse.stickhub", "demo not found")
+        # 单元级: 仅 paste 层焊盘判为非铜; F.Cu/B.Cu 不共享铜层
+        from kicad_origin.engine.drc import _pad_is_copper, _pads_share_copper
+
+        class _P:
+            def __init__(self, layers, typ="smd"):
+                self.layers, self.type = layers, typ
+        check("drc._pad_is_copper excludes paste aperture",
+              _pad_is_copper(_P(["B.Paste"])) is False
+              and _pad_is_copper(_P(["B.Cu", "B.Mask"])) is True)
+        check("drc._pads_share_copper rejects F.Cu vs B.Cu",
+              _pads_share_copper(_P(["F.Cu"]), _P(["B.Cu"])) is False
+              and _pads_share_copper(_P(["B.Cu"]), _P(["B.Cu"])) is True)
     except Exception as e:
         check("reverse rotation-aware DRC", False, str(e))
 

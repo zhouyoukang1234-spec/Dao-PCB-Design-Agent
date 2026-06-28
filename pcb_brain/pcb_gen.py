@@ -156,7 +156,8 @@ def _route_via_kicad_python(pcb_path: str, out_dir: str,
 def build_fab_package(dna_name: str, output_dir: str = "output/fab",
                       *, solve: bool = True,
                       render: bool = True,
-                      route: bool = False) -> Dict[str, Any]:
+                      route: bool = False,
+                      route_passes: int = 8) -> Dict[str, Any]:
     """全链路: DNA → board → (solve_drc) → save → (freerouting 布线) → 真实 kicad-cli 制造文件。
 
     工具在则产出真实 Gerber/钻孔/坐标/STEP/3D 渲染 + 真实 DRC; 工具不在则
@@ -191,7 +192,8 @@ def build_fab_package(dna_name: str, output_dir: str = "output/fab",
     fab_path = pcb_path
     route_info: Optional[Dict[str, Any]] = None
     if route:
-        route_info = _route_via_kicad_python(str(pcb_path), str(out / "route"))
+        route_info = _route_via_kicad_python(str(pcb_path), str(out / "route"),
+                                              passes=route_passes)
         steps["route"] = route_info or {"ok": False,
                                         "reason": "kicad-python/freerouting unavailable"}
         if route_info and route_info.get("routed_path"):
