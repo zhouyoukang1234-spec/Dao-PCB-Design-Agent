@@ -417,12 +417,15 @@ def build(spec, out_path):
         fp.SetReference(ref)
         if "value" in fpspec:
             fp.SetValue(str(fpspec["value"]))
+        board.Add(fp)
+        placed[ref] = fp
+        # orient/flip only after the footprint belongs to the board — flipping a
+        # board-less footprint dereferences board layer state and segfaults
+        # pcbnew (hit when rebuilding boards that have bottom-side parts).
         if fpspec.get("rot"):
             fp.SetOrientationDegrees(float(fpspec["rot"]))
         if fpspec.get("side") == "bottom":
             fp.Flip(fp.GetPosition(), False)
-        board.Add(fp)
-        placed[ref] = fp
         if "x" in fpspec or "y" in fpspec:
             fp.SetPosition(_v(fpspec.get("x", origin_x), fpspec.get("y", origin_y)))
         else:
