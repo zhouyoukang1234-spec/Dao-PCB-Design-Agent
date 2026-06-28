@@ -376,6 +376,14 @@ class Flow:
     def export_netlist(self, outdir, name="Netlist", timeout=90):
         return self._grab_file("window._EXTAPI_ROOT_.pcb_ManufactureData.getNetlistFile(%s)" % json.dumps(name), outdir, timeout)
 
+    def export_dsn(self, outdir, name="DSN", timeout=120):
+        """导出 Specctra DSN(喂 FreeRouting 开源布线器)。需当前为有件 PCB 文档。"""
+        return self._grab_file("window._EXTAPI_ROOT_.pcb_ManufactureData.getDsnFile(%s)" % json.dumps(name), outdir, timeout)
+
+    def export_jrouter_json(self, outdir, name="JRouter", timeout=120):
+        """导出 JLC 自带 JRouter 自动布线器的输入 JSON。需当前为有件 PCB 文档。"""
+        return self._grab_file("window._EXTAPI_ROOT_.pcb_ManufactureData.getAutoRouteJsonFileForJRouter(%s)" % json.dumps(name), outdir, timeout)
+
 
 if __name__ == "__main__":
     f = Flow()
