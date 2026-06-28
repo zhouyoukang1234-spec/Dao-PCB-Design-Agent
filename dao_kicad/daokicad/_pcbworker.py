@@ -497,12 +497,24 @@ def build(spec, out_path):
     # the chosen footprint) must NOT sink the whole board — skip it and report,
     # so a 100+ part board still builds with every routable net intact.
     skipped_conns = []
+    pad_index: dict[str, dict] = {}    # ref -> {pad name/number -> pad}, built once
+
+    def _pad_for(fp, ref, name):
+        idx = pad_index.get(ref)
+        if idx is None:
+            idx = {}
+            for p in fp.Pads():           # index every pad once, not per connection
+                idx.setdefault(p.GetPadName(), p)
+                idx.setdefault(p.GetNumber(), p)
+            pad_index[ref] = idx
+        return idx.get(str(name))
+
     for c in spec.get("connections", []):
         fp = placed.get(c["ref"])
         if fp is None:
             skipped_conns.append(f"{c['ref']}.{c.get('pad')} (未找到器件)")
             continue
-        pad = _find_pad(fp, c["pad"])
+        pad = _pad_for(fp, c["ref"], c["pad"])
         if pad is None:
             skipped_conns.append(f"{c['ref']}.{c['pad']} (封装无此焊盘)")
             continue

@@ -88,7 +88,21 @@ class LiveKiCad:
     def pcbnew_version(self) -> dict:
         return self._worker("version")
 
-    def build_board(self, spec: dict, out_path: str | Path) -> dict:
+    @staticmethod
+    def build_timeout_for(spec: dict) -> int:
+        """Worker wall-clock budget (seconds) for a build, scaled to board size.
+
+        A fixed 300s cap silently abandons large industrial boards: rebuilding
+        vme-wren (1508 footprints / 6828 pads / 12 layers) needs to load and
+        save a 68 MB board and overruns 300s. Give big boards proportionally
+        more time (footprints + connections both drive the cost), clamped to a
+        sane ceiling so a genuinely stuck worker still fails."""
+        fps = len(spec.get("footprints") or [])
+        conns = len(spec.get("connections") or [])
+        return max(300, min(3600, fps + conns // 5))
+
+    def build_board(self, spec: dict, out_path: str | Path,
+                    *, timeout: Optional[int] = None) -> dict:
         """Build a real .kicad_pcb from a declarative spec (二生三)."""
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -97,7 +111,8 @@ class LiveKiCad:
             json.dump(spec, f, ensure_ascii=False)
             spec_path = f.name
         try:
-            return self._worker("build", spec_path, str(out_path))
+            return self._worker("build", spec_path, str(out_path),
+                                timeout=timeout or self.build_timeout_for(spec))
         finally:
             Path(spec_path).unlink(missing_ok=True)
 
