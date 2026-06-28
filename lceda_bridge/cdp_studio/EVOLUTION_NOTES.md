@@ -589,3 +589,43 @@ import **直接引用** `window.__epru`(`datas.dataStr:window.__epru`)→ 任何
 列为开放项:后续可对比 import 前后 PCB COMPONENT 的封装引用闭包以最终判定是否需要「全库随迁」选项。
 
 → 至此 169MB 级超大工程的**流式无损透传 + 落库**通路成立,单帧上限不再是天花板。
+
+---
+
+## 会话 2h:阴阳并行 —— 设计本源逆推器 `reverse_intent.py`(从成品反推念头 + 正向修缺)
+
+道并行而不相悖:**反者道之动**——从已落库的真实成品反读出"为什么这么设计";
+**正向**——逆推过程暴露本系统缺陷,逐项真修(非纸面),在真实工程上闭环验证。
+
+### 阴/反:`reverse_intent.reconstruct(.epro2)` —— 从「成品」反推「最初的念头 → 全链路」
+不臆造,全部结论附真实证据(PAD_NET 网表扇出、ATTR 反向引用):
+- **本源念头**:从 title/introduction + 主导域 + 接口规模反推用途;
+- **电源树**:按 PAD_NET 真实扇出排供电骨架,`_INPUT_RAIL` 分输入轨/主干轨/域轨;
+- **接口盘点**:USB/PCIe/DDR/显示/时钟 按网络分类计数 + 差分对(`differentialName`);
+- **连通枢纽**:按器件连接的去重网络度数反推核心 IC;经 PCB `ATTR.parentId`(key=Designator/Device)
+  解析出 **designator + 器件名**;
+- **功能分块**:原理图分页 META.title;**页名通用时**改用「按连通性自动功能聚类」(`_functional_clusters`):
+  网络名语义 token → 据 net→components 把器件归入连得最多的功能块;
+- **全链路阶段溯源**:概念/原理图/网表/布局/制造 各阶段的可复原证据与置信度;
+- **缺陷自暴露 `gaps`**:本系统在该真实工程上没能复原的内容,诚实列出驱动改进。
+
+**实测(2 块真实社区成品)**:
+- EDA-Pager(3MB):反推出「ESP32-C3 + ML307C LTE 寻呼机」,6 路供电轨(+5V 主干/VBAT 输入),
+  USB×7/6 差分对;枢纽 **U5=ESP32-C3-WROOM-02(29 网)/U3=ML307C(17)/U6=IP5306 充电(9)/U4=JW5359 稳压**;
+  页名全为 P1 → 连通聚类仍重建出 **MCU/BT/USB/USIM/LTE/LCD** 功能块。
+- X86 主板(169MB):反推出「DDR + PCIe + USB + 显示」,**56 路供电轨**(+VCCCORE 主干 678 扇出),
+  USB×111/显示×56/DDR×47/PCIe×44,**234 差分对**;枢纽 **CPU1(376 网)/PCH2(250)/DIMMA1·B1(124)**;
+  页名即功能块(`CPU - MEMORY CHANNEL`/`CPU_PWR - RT3628AE IMVP9.1`/`DDR4_UDIMM CHANNEL-A0`),
+  连通聚类另得 USB/PCIE/TMDS/SATA/VGA/GT/音频/VRM。
+
+### 正/修:逆推暴露的 3 个系统缺陷 —— 全部真解决并复验(gaps 归零)
+1. **`classify_net` 漏判供电轨**:`3.3V/3V3/1V8/5V0/12V` 等无前导 `+` 写法被误判 signal。
+   → 扩 power 正则(`\d+(?:\.\d+)?V\d*` + AVDD/DVDD/VSYS/VOUT/VTT/VREF…),回灌主分类器,16 例复验正确。
+2. **`_is_power_name` 误纳控制网**:`5VSB_CTRL/DDRVPP_EN` 名带电压实为使能/反馈信号。
+   → 加 `_CTRL_SUFFIX` 守卫(`_EN/_CTRL/_PG/_FB/…`)排除,X86 供电轨由 74→56(剔除 18 控制网)。
+3. **PAD_NET.compUuid 无法映射器件**:枢纽只有 uuid、无 designator。
+   → 逆出 PCB `ATTR{parentId,key=Designator/Device}` 反向引用,枢纽解析出真实位号+器件名(跨文档引用缺口闭合)。
+4. **页名通用时功能分块失效** → 新增 `_functional_clusters` 连通性聚类,纯连通即可重建功能块。
+
+→ 阴阳一循环:反向逆推暴露缺陷 → 正向修复 → 真实成品(3MB + 169MB)复验 gaps 归零。
+沉淀:`reverse_intent.py`、报告 `_cmp/intent_{pager,x86}.json`、`reverse_analyze.classify_net` 增强。

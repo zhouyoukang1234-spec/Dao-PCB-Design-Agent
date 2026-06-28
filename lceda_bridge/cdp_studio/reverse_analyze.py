@@ -64,7 +64,9 @@ def classify_net(nm):
         return "USB"
     if re.search(r"(SATA|HDMI|TMDS|LVDS|RGMII|MDI|VGA|DISP|EDP)", u):
         return "display/highspeed-IO"
-    if re.search(r"(VCC|VDD|VBAT|VSS|PWR|\+\d|V\d+P\d|_1P8|_3P3|_5V|VTT|VPP)", u):
+    if re.search(r"(VCC|VDD|VBAT|VBUS|VSYS|VOUT|VMAIN|A?DVDD|AVDD|AVCC|VSS|PWR|"
+                 r"VTT|VPP|VREF|V\d+P\d|_1P8|_3P3|_5V|\+\d|"
+                 r"\d+(?:\.\d+)?V\d*\b)", u):
         return "power"
     if re.search(r"GND", u):
         return "ground"

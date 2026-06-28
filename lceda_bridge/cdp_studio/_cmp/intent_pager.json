@@ -1,0 +1,279 @@
+{
+ "file": "_cmp/_src.epro2",
+ "intent": {
+  "title": "EDA-Pager寻呼机",
+  "tags": "[]",
+  "designer_note": "本项目使用ESP32C3主控，结合ML307C的LTE模组实现的基于LTE网络的寻呼机/传呼机/BB机，支持消息转发，验证码识别。",
+  "dominant_domains": [
+   "USB",
+   "power",
+   "clock"
+  ],
+  "inferred_purpose": "USB 接口",
+  "power_complexity": "6 路供电轨(输入1/主干3/域2)"
+ },
+ "power_tree": {
+  "rails": [
+   {
+    "rail": "+5V",
+    "fanout": 39,
+    "kind": "backbone"
+   },
+   {
+    "rail": "3.3V",
+    "fanout": 24,
+    "kind": "backbone"
+   },
+   {
+    "rail": "+3.9V",
+    "fanout": 21,
+    "kind": "backbone"
+   },
+   {
+    "rail": "VBAT",
+    "fanout": 12,
+    "kind": "input"
+   },
+   {
+    "rail": "USIM0_PWR",
+    "fanout": 6,
+    "kind": "domain"
+   },
+   {
+    "rail": "3V3",
+    "fanout": 3,
+    "kind": "domain"
+   }
+  ],
+  "rail_total": 6,
+  "grounds": [
+   [
+    "GND",
+    283
+   ]
+  ]
+ },
+ "interfaces": {
+  "USB": 7,
+  "clock": 1
+ },
+ "differential_pairs": 6,
+ "connectivity_hubs": [
+  {
+   "designator": "U5",
+   "device": "ESP32-C3-WROOM-02-N4",
+   "net_degree": 29,
+   "comp": "8ef66a10b4"
+  },
+  {
+   "designator": "U3",
+   "device": "ML307C-DC-CN",
+   "net_degree": 17,
+   "comp": "009f34230d"
+  },
+  {
+   "designator": "U1",
+   "device": "HS12832",
+   "net_degree": 11,
+   "comp": "46a9ae4180"
+  },
+  {
+   "designator": "U6",
+   "device": "IP5306",
+   "net_degree": 9,
+   "comp": "27ad2330b4"
+  },
+  {
+   "designator": "USB1",
+   "device": "TYPE-C 16PIN 2MD(073)",
+   "net_degree": 8,
+   "comp": "cf0049b763"
+  },
+  {
+   "designator": "U4",
+   "device": "JW5359MSOTB#TR",
+   "net_degree": 6,
+   "comp": "0b7a54acf5"
+  },
+  {
+   "designator": "USB2",
+   "device": "TYPE-C 16PIN 2MD(073)",
+   "net_degree": 6,
+   "comp": "7385983c3c"
+  },
+  {
+   "designator": "CARD1",
+   "device": "SMN-303",
+   "net_degree": 5,
+   "comp": "5f42f34ecc"
+  },
+  {
+   "designator": "U2",
+   "device": "ME6217C33M5G",
+   "net_degree": 4,
+   "comp": "336da297bc"
+  },
+  {
+   "designator": "R9",
+   "device": "0805W8F1002T5E_C17414",
+   "net_degree": 3,
+   "comp": "b3e81d7b6c"
+  },
+  {
+   "designator": "C14",
+   "device": "CL21A106KAYNNNE_C15850",
+   "net_degree": 3,
+   "comp": "4f8ce09fe5"
+  },
+  {
+   "designator": "C17",
+   "device": "FCC0805B104K500DT",
+   "net_degree": 3,
+   "comp": "4e9221a867"
+  },
+  {
+   "designator": "Q1",
+   "device": "AO3400A_C347475",
+   "net_degree": 3,
+   "comp": "4991f8f374"
+  },
+  {
+   "designator": "R17",
+   "device": "FRC0805J472 TS",
+   "net_degree": 2,
+   "comp": "6ff28485df"
+  },
+  {
+   "designator": "SW1",
+   "device": "KH-6X6X9H-TJ",
+   "net_degree": 2,
+   "comp": "f54819acd2"
+  }
+ ],
+ "functional_pages": [
+  {
+   "title": "P1",
+   "components": 212
+  },
+  {
+   "title": "P1",
+   "components": 208
+  },
+  {
+   "title": "P1",
+   "components": 176
+  },
+  {
+   "title": "P1",
+   "components": 1
+  }
+ ],
+ "functional_clusters": [
+  {
+   "block": "MCU",
+   "nets": 6,
+   "components": 6,
+   "members": [
+    "C12",
+    "C12",
+    "R10",
+    "SW5",
+    "SW6",
+    "U5"
+   ]
+  },
+  {
+   "block": "BT",
+   "nets": 3,
+   "components": 6,
+   "members": [
+    "R15",
+    "R16",
+    "R9",
+    "SW1",
+    "SW2",
+    "SW3"
+   ]
+  },
+  {
+   "block": "USB",
+   "nets": 3,
+   "components": 5,
+   "members": [
+    "C5",
+    "R5",
+    "U6",
+    "USB1",
+    "USB2"
+   ]
+  },
+  {
+   "block": "USIM",
+   "nets": 3,
+   "components": 2,
+   "members": [
+    "CARD1",
+    "U3"
+   ]
+  },
+  {
+   "block": "LTE",
+   "nets": 2,
+   "components": 2,
+   "members": [
+    "SW7",
+    "SW8"
+   ]
+  },
+  {
+   "block": "BLK",
+   "nets": 1,
+   "components": 2,
+   "members": [
+    "Q1",
+    "R18"
+   ]
+  },
+  {
+   "block": "LCD",
+   "nets": 3,
+   "components": 1,
+   "members": [
+    "U1"
+   ]
+  }
+ ],
+ "provenance_stages": [
+  {
+   "stage": "1.概念/需求",
+   "evidence": "title/tags/introduction",
+   "recoverable": true,
+   "confidence": "高"
+  },
+  {
+   "stage": "2.原理图",
+   "evidence": "SCH_PAGE×4 / 器件按页分布",
+   "recoverable": true,
+   "confidence": "低(页名通用,功能分块靠推断)"
+  },
+  {
+   "stage": "3.网表/连通",
+   "evidence": "PAD_NET 真实扇出 64 网络",
+   "recoverable": true,
+   "confidence": "高"
+  },
+  {
+   "stage": "4.布局布线",
+   "evidence": "铜层 15 / 过孔 / 走线",
+   "recoverable": true,
+   "confidence": "高"
+  },
+  {
+   "stage": "5.制造产出",
+   "evidence": "层叠/板框/钻孔(可程序化导出 Gerber/BOM)",
+   "recoverable": true,
+   "confidence": "高"
+  }
+ ],
+ "gaps": []
+}

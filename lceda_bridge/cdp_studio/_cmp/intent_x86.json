@@ -1,0 +1,707 @@
+{
+ "file": "_x86.epro2",
+ "intent": {
+  "title": "【全网首发】X86电脑主板",
+  "tags": "[]",
+  "designer_note": "X86架构PC电脑主板",
+  "dominant_domains": [
+   "USB",
+   "power",
+   "display/highspeed-IO",
+   "DDR/memory"
+  ],
+  "inferred_purpose": "带 DDR 内存子系统；PCIe 扩展；USB 接口；显示/高速 IO",
+  "power_complexity": "56 路供电轨(输入2/主干1/域53)"
+ },
+ "power_tree": {
+  "rails": [
+   {
+    "rail": "+VCCCORE",
+    "fanout": 678,
+    "kind": "backbone"
+   },
+   {
+    "rail": "VCC3_3",
+    "fanout": 182,
+    "kind": "domain"
+   },
+   {
+    "rail": "+3V3_DUAL",
+    "fanout": 176,
+    "kind": "domain"
+   },
+   {
+    "rail": "+VCCGT",
+    "fanout": 126,
+    "kind": "domain"
+   },
+   {
+    "rail": "+VCCPRIM_P82V",
+    "fanout": 118,
+    "kind": "domain"
+   },
+   {
+    "rail": "+5V_DUAL",
+    "fanout": 98,
+    "kind": "domain"
+   },
+   {
+    "rail": "+VCCIN_AUX_CPU",
+    "fanout": 90,
+    "kind": "domain"
+   },
+   {
+    "rail": "VCC5",
+    "fanout": 62,
+    "kind": "input"
+   },
+   {
+    "rail": "+VCC1P05_PROC",
+    "fanout": 60,
+    "kind": "domain"
+   },
+   {
+    "rail": "VCC12",
+    "fanout": 44,
+    "kind": "domain"
+   },
+   {
+    "rail": "+VPP",
+    "fanout": 38,
+    "kind": "domain"
+   },
+   {
+    "rail": "+VCCPRIM_1P8V",
+    "fanout": 32,
+    "kind": "domain"
+   },
+   {
+    "rail": "VDD33_1",
+    "fanout": 24,
+    "kind": "domain"
+   },
+   {
+    "rail": "RT3628_VREF",
+    "fanout": 22,
+    "kind": "domain"
+   },
+   {
+    "rail": "VDD10_1",
+    "fanout": 22,
+    "kind": "domain"
+   },
+   {
+    "rail": "+VTT",
+    "fanout": 20,
+    "kind": "domain"
+   },
+   {
+    "rail": "+VCCA_XTAL_PLL_0P82_LC",
+    "fanout": 20,
+    "kind": "domain"
+   },
+   {
+    "rail": "+3V3_AUX",
+    "fanout": 20,
+    "kind": "domain"
+   },
+   {
+    "rail": "+VCC1P8_PROC",
+    "fanout": 18,
+    "kind": "domain"
+   },
+   {
+    "rail": "+3.3VA",
+    "fanout": 16,
+    "kind": "domain"
+   },
+   {
+    "rail": "+VCCCNVI_LDO_0P4",
+    "fanout": 16,
+    "kind": "domain"
+   },
+   {
+    "rail": "+5V_STBY",
+    "fanout": 14,
+    "kind": "domain"
+   },
+   {
+    "rail": "FB_VCCSM",
+    "fanout": 12,
+    "kind": "domain"
+   },
+   {
+    "rail": "+3.3VD",
+    "fanout": 12,
+    "kind": "domain"
+   }
+  ],
+  "rail_total": 56,
+  "grounds": [
+   [
+    "GND",
+    3942
+   ],
+   [
+    "GND_AUD",
+    72
+   ],
+   [
+    "GNDA",
+    16
+   ]
+  ]
+ },
+ "interfaces": {
+  "USB": 111,
+  "display/highspeed-IO": 56,
+  "DDR/memory": 47,
+  "PCIe": 44,
+  "clock": 31
+ },
+ "differential_pairs": 234,
+ "connectivity_hubs": [
+  {
+   "designator": "?",
+   "device": "?",
+   "net_degree": 376,
+   "comp": "e2067"
+  },
+  {
+   "designator": "CPU1",
+   "device": "?",
+   "net_degree": 376,
+   "comp": "42db5150b5"
+  },
+  {
+   "designator": "?",
+   "device": "?",
+   "net_degree": 250,
+   "comp": "ie158615"
+  },
+  {
+   "designator": "PCH2",
+   "device": "?",
+   "net_degree": 250,
+   "comp": "41a5af0c61"
+  },
+  {
+   "designator": "DIMMA1",
+   "device": "?",
+   "net_degree": 124,
+   "comp": "e1104"
+  },
+  {
+   "designator": "?",
+   "device": "?",
+   "net_degree": 124,
+   "comp": "e1105"
+  },
+  {
+   "designator": "DIMMA1",
+   "device": "?",
+   "net_degree": 124,
+   "comp": "375e0bb26b"
+  },
+  {
+   "designator": "DIMMB1",
+   "device": "?",
+   "net_degree": 124,
+   "comp": "4cbfa80dbe"
+  },
+  {
+   "designator": "PEX16_1",
+   "device": "?",
+   "net_degree": 107,
+   "comp": "e1446"
+  },
+  {
+   "designator": "AU4",
+   "device": "?",
+   "net_degree": 76,
+   "comp": "ie158577"
+  },
+  {
+   "designator": "?",
+   "device": "?",
+   "net_degree": 56,
+   "comp": "ie158589"
+  },
+  {
+   "designator": "SU3",
+   "device": "?",
+   "net_degree": 56,
+   "comp": "26f258ade1"
+  },
+  {
+   "designator": "AU1",
+   "device": "?",
+   "net_degree": 39,
+   "comp": "ie158570"
+  },
+  {
+   "designator": "?",
+   "device": "?",
+   "net_degree": 26,
+   "comp": "e18097"
+  },
+  {
+   "designator": "U5",
+   "device": "?",
+   "net_degree": 26,
+   "comp": "e8cba3b2a2"
+  }
+ ],
+ "functional_pages": [
+  {
+   "title": "CPU - MEMORY CHANNEL",
+   "components": 233
+  },
+  {
+   "title": "CPU_PWR - RT3628AE IMVP9.1",
+   "components": 200
+  },
+  {
+   "title": "PEG/PCIEX1 SLOT",
+   "components": 171
+  },
+  {
+   "title": "DDR4_UDIMM CHANNEL-A0",
+   "components": 169
+  },
+  {
+   "title": "DDR4_UDIMM CHANNEL-B0",
+   "components": 159
+  },
+  {
+   "title": "USB32 GEN1 5G_FRONT",
+   "components": 130
+  },
+  {
+   "title": "AUDIO - ALC897_3CH",
+   "components": 129
+  },
+  {
+   "title": "POWER - SYSTEM POWER",
+   "components": 129
+  },
+  {
+   "title": "CPU - POWER",
+   "components": 122
+  },
+  {
+   "title": "SIO - IT8613E",
+   "components": 120
+  },
+  {
+   "title": "ADL S PCH 600 SPI/PM",
+   "components": 112
+  },
+  {
+   "title": "DDR4_PWR - +VDDQ_+VTT_+VPP",
+   "components": 104
+  },
+  {
+   "title": "ADL S PCH 600 PWR",
+   "components": 103
+  },
+  {
+   "title": "CPU - CPU PCIEX16/DMI/FDI",
+   "components": 100
+  },
+  {
+   "title": "ADL S PCH 600 DMI/USB/AUDIO",
+   "components": 97
+  },
+  {
+   "title": "ADL S PCH 600 CLOCK/PCIE",
+   "components": 90
+  },
+  {
+   "title": "M.2_SATA_SLOT",
+   "components": 88
+  },
+  {
+   "title": "CPU_PWR - +VCCCORE_1/3",
+   "components": 86
+  },
+  {
+   "title": "LAN - RTL8111H",
+   "components": 81
+  },
+  {
+   "title": "PCH_PWR - 0.82V/1.05V/1.8V",
+   "components": 79
+  }
+ ],
+ "functional_clusters": [
+  {
+   "block": "RT",
+   "nets": 25,
+   "components": 96,
+   "members": [
+    "PC169",
+    "PC171",
+    "PC174",
+    "PC177",
+    "PC180",
+    "PL10",
+    "PL11",
+    "PL12",
+    "PL13",
+    "PL14",
+    "PQ10",
+    "PQ11"
+   ]
+  },
+  {
+   "block": "USB",
+   "nets": 56,
+   "components": 62,
+   "members": [
+    "C360",
+    "C361",
+    "C362",
+    "C363",
+    "C383",
+    "C384",
+    "C385",
+    "C386",
+    "F_USB1",
+    "F_USB2",
+    "F_USB3",
+    "PCH2"
+   ]
+  },
+  {
+   "block": "ISEN",
+   "nets": 12,
+   "components": 40,
+   "members": [
+    "AU4",
+    "PC167",
+    "PC168",
+    "PC173",
+    "PC176",
+    "PC179",
+    "PC235",
+    "PC237",
+    "PC239",
+    "PC240",
+    "PC241",
+    "PC243"
+   ]
+  },
+  {
+   "block": "EXP",
+   "nets": 64,
+   "components": 35,
+   "members": [
+    "CPU1",
+    "EC1",
+    "EC10",
+    "EC11",
+    "EC12",
+    "EC13",
+    "EC14",
+    "EC19",
+    "EC2",
+    "EC24",
+    "EC3",
+    "EC4"
+   ]
+  },
+  {
+   "block": "TMDS",
+   "nets": 8,
+   "components": 30,
+   "members": [
+    "C194",
+    "C195",
+    "C196",
+    "C197",
+    "C198",
+    "C199",
+    "C200",
+    "C201",
+    "GR1",
+    "GR2",
+    "GR3",
+    "GR4"
+   ]
+  },
+  {
+   "block": "MIC",
+   "nets": 10,
+   "components": 24,
+   "members": [
+    "AC5",
+    "AC6",
+    "AC7",
+    "AC8",
+    "AR103",
+    "AR73",
+    "AR85",
+    "AR86",
+    "AR90",
+    "AR97",
+    "AUDIO",
+    "AUDIO"
+   ]
+  },
+  {
+   "block": "PCIE",
+   "nets": 34,
+   "components": 21,
+   "members": [
+    "C237",
+    "C238",
+    "C239",
+    "C240",
+    "EC110",
+    "EC112",
+    "EC115",
+    "EC116",
+    "EC119",
+    "EC120",
+    "EC57",
+    "EC87"
+   ]
+  },
+  {
+   "block": "GT",
+   "nets": 5,
+   "components": 19,
+   "members": [
+    "PC183",
+    "PL15",
+    "PQ17",
+    "PQ18",
+    "PR221",
+    "PR56",
+    "PR58",
+    "PR59",
+    "PR60",
+    "PR61",
+    "PU15",
+    "e1470"
+   ]
+  },
+  {
+   "block": "VGA",
+   "nets": 7,
+   "components": 14,
+   "members": [
+    "e1254",
+    "e1255",
+    "e1256",
+    "e1785",
+    "e1786",
+    "e1787",
+    "e1844",
+    "e1845",
+    "e1847",
+    "e1849",
+    "e996",
+    "e997"
+   ]
+  },
+  {
+   "block": "SATA",
+   "nets": 21,
+   "components": 14,
+   "members": [
+    "D4",
+    "EC25",
+    "EC26",
+    "EC27",
+    "EC28",
+    "EC37",
+    "EC38",
+    "EC39",
+    "EC40",
+    "EC41",
+    "EC42",
+    "EC43"
+   ]
+  },
+  {
+   "block": "LINE",
+   "nets": 6,
+   "components": 13,
+   "members": [
+    "AC22",
+    "AC23",
+    "AC24",
+    "AC25",
+    "AR48",
+    "AR49",
+    "F_AUDIO1",
+    "R253",
+    "R298",
+    "R376",
+    "e1191",
+    "e950"
+   ]
+  },
+  {
+   "block": "VSM",
+   "nets": 4,
+   "components": 13,
+   "members": [
+    "MC105",
+    "MR117",
+    "MR120",
+    "PL18",
+    "PQ33",
+    "PQ34",
+    "U15",
+    "e1337",
+    "e1342",
+    "e1475",
+    "e15475",
+    "e1610"
+   ]
+  },
+  {
+   "block": "SMB",
+   "nets": 4,
+   "components": 12,
+   "members": [
+    "DIMMA1",
+    "DIMMA1",
+    "DIMMB1",
+    "PR137",
+    "PR138",
+    "Q49",
+    "Q50",
+    "R193",
+    "R196",
+    "YR54",
+    "YR55",
+    "e1105"
+   ]
+  },
+  {
+   "block": "VIN",
+   "nets": 6,
+   "components": 11,
+   "members": [
+    "C380",
+    "PR220",
+    "SR28",
+    "SR30",
+    "SR31",
+    "SR36",
+    "SR40",
+    "SR50",
+    "SR60",
+    "SR70",
+    "e1509"
+   ]
+  },
+  {
+   "block": "SLP",
+   "nets": 7,
+   "components": 11,
+   "members": [
+    "MR13",
+    "R369",
+    "R522",
+    "SR27",
+    "YR131",
+    "YR135",
+    "YR138",
+    "YR139",
+    "YR140",
+    "YR141",
+    "YR145"
+   ]
+  },
+  {
+   "block": "LAN",
+   "nets": 17,
+   "components": 11,
+   "members": [
+    "LAN1",
+    "LQ1",
+    "LQ2",
+    "LU1",
+    "U5",
+    "YR4",
+    "e1257",
+    "e1598",
+    "e1599",
+    "e18097",
+    "ie158506"
+   ]
+  },
+  {
+   "block": "XTAL",
+   "nets": 4,
+   "components": 11,
+   "members": [
+    "C225",
+    "C230",
+    "C231",
+    "C246",
+    "LY1",
+    "R38",
+    "Y1",
+    "e1007",
+    "e1008",
+    "e1286",
+    "e2242"
+   ]
+  },
+  {
+   "block": "AUX",
+   "nets": 4,
+   "components": 9,
+   "members": [
+    "MR107",
+    "MR111",
+    "PR182",
+    "R612",
+    "TR37",
+    "e1842",
+    "e1843",
+    "e711",
+    "e716"
+   ]
+  }
+ ],
+ "provenance_stages": [
+  {
+   "stage": "1.概念/需求",
+   "evidence": "title/tags/introduction",
+   "recoverable": true,
+   "confidence": "高"
+  },
+  {
+   "stage": "2.原理图",
+   "evidence": "SCH_PAGE×36 / 器件按页分布",
+   "recoverable": true,
+   "confidence": "高(页名即功能块)"
+  },
+  {
+   "stage": "3.网表/连通",
+   "evidence": "PAD_NET 真实扇出 1406 网络",
+   "recoverable": true,
+   "confidence": "高"
+  },
+  {
+   "stage": "4.布局布线",
+   "evidence": "铜层 13 / 过孔 / 走线",
+   "recoverable": true,
+   "confidence": "高"
+  },
+  {
+   "stage": "5.制造产出",
+   "evidence": "层叠/板框/钻孔(可程序化导出 Gerber/BOM)",
+   "recoverable": true,
+   "confidence": "高"
+  }
+ ],
+ "gaps": []
+}
