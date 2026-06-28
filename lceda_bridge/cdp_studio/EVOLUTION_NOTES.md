@@ -69,4 +69,51 @@ scaffold(建工程/原理图/PCB) → open sch → place(放件) → save
 - `build_blinker.py`:全程**故障软化**——放件/连线失败不再中断,以"落盘实到件"为准
   继续走完同步/板框/DRC/导出,保证链路恒可跑通并产出可制造件。
 
+## 五、反者道之动 · 反向工程路线(本轮新挖,绕开正向放件瓶颈)
+
+> 用户指向:拿市面成熟成品板,从成品**逆推**回本源设计(选型→网表→布局→布线),
+> 在逆推实践中暴露并修复系统缺陷。反向恰好绕开"合成鼠标正向放件"的脆弱瓶颈。
+
+### 已摸清的反向 API 面(EXTAPI 实测)
+- **`sch_Netlist.getNetlist(type)` / `setNetlist(type, netlist)`** 与
+  **`pcb_Net.getNetlist(type)` / `setNetlist(type, netlist)`**:网表**读/写**。
+  `setNetlist` 即"由网表确定性构建设计",**无需鼠标、无视口依赖** → 正是放件根治的反向解。
+  PCB 侧支持多格式:JLCEDA/EasyEDA(`enet`)、PADS(`asc`)、Protel2(`net`)、
+  Allegro(`tel`)、DISA(`dnet`)→ 可直接吃工业界真实板的网表。
+- **`sys_Tool.netlistComparison(nl1, nl2)`**:网表比对 = 逆推"与参考比对"的核心原语。
+- **`pcb_Document.importAutoRouteSesFile(file)`** + `importAutoRouteJsonFile` /
+  `importAutoLayoutJsonFile`:导入 **Specctra SES** / 自动布局结果 →
+  可接 **FreeRouting**(成熟开源自动布线器,输出 SES)等外部引擎(对齐"继承成熟工具")。
+- **`sys_FileManager.importProjectByProjectFile(file, "JLCEDA Pro", {associateFootprint,associate3DModel,...})`**:
+  整工程导入(可关联封装/3D)。
+- **`pcb_ManufactureData.getAltiumDesignerFile()`** + `sys_FormatConversion.convertAltiumDesignerLibraries...`:
+  Altium 往返 → 逆推 Altium 设计。
+- 原生引擎:`sch_Document.autoLayout({uuids,netlist,...})` / `autoRouting(...)`。
+
+### 实测到的 JLCEDA 规范网表数据模型(已存样本 `demos/pcb_netlist.json`)
+```
+{ version, components:[ {                       # 每个器件
+      attributes:{ Designator, Name, Device, FootprintName, DeviceName,
+                   "3D Model", Supplier, "Add into BOM", "Convert to PCB", ... },
+      pinInfoMap:{ "<pinNo>": { name, number, net } }   # 网络挂在每个引脚的 net 字段
+  } ], designRule, netClass, equalLengthNetGroup, differentialPair }
+```
+即:**网络 = 各器件 pinInfoMap[n].net 的同名归并**;BOM/封装/3D 全在 attributes 里。
+⇒ 逆推一块板 = 还原出这份结构 → `setNetlist` 灌入 → 即得可编辑设计。
+
+### 本轮反向实测发现的坑
+- **`sch_Netlist.getNetlist` 会 hang**:其内部 `await /PrjDB/footprint/getDisplay...`
+  在本 CDP/headless 上下文不 resolve(与 openDocument 同类的 fire-and-forget 病)→
+  CDP 传输超时。**对策:走 `pcb_Net.getNetlist`(不含封装显示名 loop,快且稳)**,
+  或给 sch 侧那条内部 rpc 加 fire-and-forget+轮询。
+- 重型调用(网表/导入)需放大 CDP 传输超时(`call(..., timeout=40~120)`)。
+
+### 反向路线下一步(可执行顺序)
+1. **验证 `setNetlist` 往返**:`pcb_Net.getNetlist` → 程序化补网(给 pinInfoMap 填 net)→
+   `setNetlist` 回灌 → 校验器件+网络落盘。打通即得**确定性建网骨干**,正向放件瓶颈作废。
+2. 取一块真实开源硬件板(公开 Gerber/网表/BOM)→ `importProjectByProjectFile` 或
+   网表导入 → 还原可编辑设计。
+3. **FreeRouting 闭环**:导出 Specctra DSN → FreeRouting 跑线 → `importAutoRouteSesFile` 回灌。
+4. `netlistComparison` 做"成品 vs 我方还原"的逐层一致性校验,暴露差距、逐项修。
+
 *为学者日益,闻道者日损。损之又损,以至于无为。先把边界看清,再以最小动作根治。*
