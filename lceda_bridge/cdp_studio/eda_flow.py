@@ -286,6 +286,228 @@ class Flow:
         """板框 = layer11 闭合 Polyline。返回是否存在板框 Polyline。"""
         return bool(self.eda.call("pcb_PrimitivePolyline.getAllPrimitiveId", timeout=12) or [])
 
+    def board_outline_rect(self, x, y, w, h):
+        """**程序化**创建矩形板框(layer11 闭合 Polyline),彻底去掉布线前的 GUI 一步。
+
+        本会话攻克的边界(已硬验证):板框是 layer11 的**闭合 Polyline**,底层结构
+          {"polygon":{"polygon":["R", x, y, w, h, 0, 0]}, "lineWidth":10}
+        其中 ["R",x,y,w,h,0,0] = 矩形:**(x,y)=左上角**、w=宽、h=高(高度向 **−y** 延伸,
+        即向下)、末两个 0=圆角半径。`pcb_PrimitivePolyline.create` 不能直接吃 ["R",...]
+        (报"无法创建多边形图元");正确姿势是先用 `pcb_MathPolygon.createPolygon(["R",...])`
+        造出 Polygon **活对象**,再 `create("", 11, poly, 10, false)`。Polygon 是浏览器内活
+        对象,无法经 RPC 序列化往返 → 必须把两步放进**同一段 in-page eval**。
+
+        返回 {"id": <primitiveId>, "layer": 11};失败抛 FlowError。
+        """
+        R = "window._EXTAPI_ROOT_"
+        rect = json.dumps(["R", x, y, w, h, 0, 0])
+        js = ("(async()=>{try{var R=%s;"
+              "var poly=R.pcb_MathPolygon.createPolygon(%s);"
+              "if(!poly)return JSON.stringify({err:'createPolygon undefined'});"
+              "var r=await R.pcb_PrimitivePolyline.create('',11,poly,10,false);"
+              "return JSON.stringify({ok:!!r,id:r&&r.primitiveId,layer:r&&r.layer});"
+              "}catch(e){return JSON.stringify({err:String(e&&e.message||e).slice(0,80)})}})()"
+              % (R, rect))
+        v, e = d.evaluate(self.ws, js, await_promise=True, timeout=25)
+        if e:
+            raise FlowError("board_outline_rect eval: " + e)
+        o = json.loads(v)
+        if o.get("err") or not o.get("ok"):
+            raise FlowError("board_outline_rect: " + str(o.get("err") or o))
+        return {"id": o.get("id"), "layer": o.get("layer")}
+
+    def purge_board_outlines(self):
+        """删除画新板框前**已存在的所有 layer-11 板框 Polyline**(防杂散/重复板框)。
+
+        第二十章密板暴露:某次自动摆放下板上会出现一段贴着 TH 焊盘的杂散 board-outline 几何
+        (`Board Outline:e0`),触发「板框→插孔 <11.8mil」DRC 违规,且与布线/密度无关。根因防御:
+        在 `auto_board_outline` 真正画矩形板框之前,先把**板框层(layer 11)上已有的 Polyline 全删**,
+        保证最终板上**只有我们这一条干净矩形板框**,杜绝任何残留/二次板框-焊盘间距偶发。
+        返回删除条数。"""
+        pids = self.eda.call("pcb_PrimitivePolyline.getAllPrimitiveId", timeout=15) or []
+        n = 0
+        for pid in pids:
+            try:
+                g = self.eda.call("pcb_PrimitivePolyline.get", pid, timeout=8) or {}
+                if g.get("layer") in (11, "11", None):
+                    self.eda.call("pcb_PrimitivePolyline.delete", pid, timeout=8)
+                    n += 1
+            except Exception:
+                pass
+        return n
+
+    def auto_board_outline(self, margin=100, purge=True):
+        """从 PCB 焊盘 bbox **自动**算出并程序化创建矩形板框(无需 GUI、无需手填尺寸)。
+
+        margin 默认 100mil:给 TH 焊盘留足 JLC「板边到插孔 ≥11.8mil」余量。早期 60mil 在大插孔焊盘
+        贴近 bbox 边时余量被焊盘半径吃掉,会偶发「Board Outline to TH Pad < 11.8mil」(见第二十章)。
+
+        坐标系坑(已硬验证):矩形 ["R",x,y,w,h,..] 的 (x,y) 是**左上角**,h 向 **−y**(向下)
+        延伸。故 top-left 的 y 取 **max_pad_y + margin**(不是 min),否则板框落到器件**下方**、
+        把器件框在外面,自动布线得 0 条铜线。
+        """
+        purged = self.purge_board_outlines() if purge else 0
+        pads = self.eda.call("pcb_PrimitivePad.getAllPrimitiveId", timeout=15) or []
+        if not pads:
+            raise FlowError("auto_board_outline: 没有焊盘,无法估板框(先 importChanges?)")
+        xs, ys = [], []
+        for p in pads:
+            g = self.eda.call("pcb_PrimitivePad.get", p, timeout=8)
+            if g and "x" in g and "y" in g:
+                xs.append(g["x"]); ys.append(g["y"])
+        if not xs:
+            raise FlowError("auto_board_outline: 焊盘无坐标")
+        x = min(xs) - margin
+        top_y = max(ys) + margin
+        w = (max(xs) - min(xs)) + 2 * margin
+        h = (max(ys) - min(ys)) + 2 * margin
+        out = self.board_outline_rect(x, top_y, w, h)
+        out["purged"] = purged
+        return out
+
+    def set_net_track_width(self, width_mm, nets):
+        """**程序化**设计规则:给指定网络设更宽的布线线宽(电源/地走粗线)。
+
+        本会话攻克的边界:`pcb_Drc.createNetClass` 返回 null **不落库**(疑似需在规则
+        配置上下文内 overwriteRuleConfiguration 才生效),但**逐网规则**这条路是通的:
+        `getNetRules()` 取回每网规则数组(每项含 "Track":"default"),把目标网的 "Track"
+        改成数值(单位 mm),再 `overwriteNetRules(arr)` 即落库(返回 True、getNetRules 复读到值)。
+        **关键顺序**:线宽规则必须在**首次自动布线前**设好(布完再 ripup 重布会与既有
+        覆铜互相干扰,得不到干净结果)。返回改了几条网。
+        """
+        rules = self.eda.call("pcb_Drc.getNetRules", timeout=20) or []
+        want = set(nets)
+        n = 0
+        for r in rules:
+            if r.get("name") in want:
+                r["Track"] = width_mm
+                n += 1
+        self.eda.call("pcb_Drc.overwriteNetRules", rules, timeout=25)
+        return n
+
+    def create_diff_pair(self, name, pos_net, neg_net):
+        """**程序化**建差分对(高速信号 USB/CAN/LVDS 等正负成对约束)。
+
+        本会话攻克的边界:`pcb_Drc.createDifferentialPair(name, pos, neg)` **返回 True 且落库**
+        ——`getAllDifferentialPairs()` 立刻复读到 {name, positiveNet, negativeNet}。这与
+        `createNetClass`(返回空、getAllNetClasses 恒 []、addNetToNetClass 返回 False、**始终不落库**)
+        形成鲜明对比:**差分对这条路是通的,网类那条至今不通**。返回是否成功。
+        """
+        ok = self.eda.call("pcb_Drc.createDifferentialPair", name, pos_net, neg_net, timeout=20)
+        return bool(ok)
+
+    def get_diff_pairs(self):
+        return self.eda.call("pcb_Drc.getAllDifferentialPairs", timeout=15) or []
+
+    def widen_net_tracks(self, width_mil, nets):
+        """**程序化**给指定网络的已布铜线加粗(电源/地走粗线)。
+
+        本会话攻克的边界与教训:把线宽写进**设计规则**(`set_net_track_width` 走
+        `overwriteNetRules`)虽能落库,但内置自动布线器**带着加宽规则会直接罢工**
+        (GND/VCC 设 0.25mm 时整板只布出 0~1 条线)——细间距焊盘下粗线逃不出去,布线器
+        干脆放弃。正解是**先按默认线宽布通(DRC 过),再回头逐条改 `pcb_PrimitiveLine.lineWidth`**。
+        注意 width 过大(本 NE555 上 16mil/24mil 即超 JLCPCB 6mil 最小间距)会让 DRC 报错,
+        加宽幅度须留间距余量;真正的大面积配电更应走**覆铜地平面**(见 auto_ground_pour)。
+        返回加粗的铜线条数。
+        """
+        ids = self.eda.call("pcb_PrimitiveLine.getAllPrimitiveId", timeout=15) or []
+        want = set(nets)
+        n = 0
+        for i in ids:
+            g = self.eda.call("pcb_PrimitiveLine.get", i, timeout=8)
+            if g and g.get("net") in want:
+                self.eda.call("pcb_PrimitiveLine.modify", i, {"lineWidth": width_mil}, timeout=8)
+                n += 1
+        return n
+
+    def copper_pour(self, net, layer, x, y, w, h, name="", line_width=10):
+        """**程序化**敷铜(覆铜):在某层用矩形给某网络铺地/铺电源平面。
+
+        本会话攻克的边界(逆向 api.js 的 `Or` 类硬验证)。`pcb_PrimitivePour.create`
+        被外层 try/catch 吞了真错("无法创建覆铜边框图元"),逼出构造函数真签名:
+          create(net, layer, complexPolygon, fillMethod="solid", preserveSilos=false,
+                 pourName, pourPriority, lineWidth, lock=false)
+        两个坑:① **第 1 参是网络名**(不是 name)、第 3 参必须是 **complexPolygon**
+        (`pcb_MathPolygon.createComplexPolygon([["R",x,y,w,h,0,0]])`,**不是** createPolygon);
+        ② 创建出的只是**覆铜边框**,铜没算出来(pcb_PrimitivePoured 为 0)——必须再触发
+        一次"重建覆铜"(见 rebuild_pours,走 GUI 快捷键 Shift+B,extapi 无此命令)。
+
+        矩形坐标同板框:(x,y)=左上角, h 向 −y(向下)。返回 {"id","layer","net"}。
+        """
+        R = "window._EXTAPI_ROOT_"
+        rect = json.dumps(["R", x, y, w, h, 0, 0])
+        js = ("(async()=>{try{var R=%s;"
+              "var cp=R.pcb_MathPolygon.createComplexPolygon([%s]);"
+              "if(!cp)return JSON.stringify({err:'createComplexPolygon undefined'});"
+              "var r=await R.pcb_PrimitivePour.create(%s,%d,cp,'solid',false,%s,0,%d,false);"
+              "return JSON.stringify({ok:!!r,id:r&&r.primitiveId,layer:r&&r.layer,net:r&&r.net});"
+              "}catch(e){return JSON.stringify({err:String(e&&e.message||e).slice(0,90)})}})()"
+              % (R, rect, json.dumps(net), layer, json.dumps(name or (net + "_L" + str(layer))), line_width))
+        v, e = d.evaluate(self.ws, js, await_promise=True, timeout=25)
+        if e:
+            raise FlowError("copper_pour eval: " + e)
+        o = json.loads(v)
+        if o.get("err") or not o.get("ok"):
+            raise FlowError("copper_pour: " + str(o.get("err") or o))
+        return {"id": o.get("id"), "layer": o.get("layer"), "net": o.get("net")}
+
+    def auto_ground_pour(self, net="GND", layers=(1, 2), margin=20, line_width=10):
+        """从焊盘 bbox 自动给指定层铺 GND(双面地平面),建完即 rebuild_pours 算出铜。"""
+        pads = self.eda.call("pcb_PrimitivePad.getAllPrimitiveId", timeout=15) or []
+        xs, ys = [], []
+        for p in pads:
+            g = self.eda.call("pcb_PrimitivePad.get", p, timeout=8)
+            if g and "x" in g and "y" in g:
+                xs.append(g["x"]); ys.append(g["y"])
+        if not xs:
+            raise FlowError("auto_ground_pour: 焊盘无坐标(先 importChanges?)")
+        x = min(xs) - margin
+        top_y = max(ys) + margin
+        w = (max(xs) - min(xs)) + 2 * margin
+        h = (max(ys) - min(ys)) + 2 * margin
+        made = [self.copper_pour(net, ly, x, top_y, w, h, line_width=line_width) for ly in layers]
+        poured = self.rebuild_pours()
+        return {"pours": made, "poured": poured}
+
+    def rebuild_pours(self, settle=4):
+        """触发"重建覆铜"算出实铜(extapi 无此命令 → GUI 快捷键 Shift+B)。
+        返回 pcb_PrimitivePoured 计算出的实铜对象数(>0 即敷铜成功)。"""
+        # 先点画布拿到焦点,再发 Shift+B
+        for ev in ("mousePressed", "mouseReleased"):
+            self.ws.cmd("Input.dispatchMouseEvent",
+                        {"type": ev, "x": 600, "y": 400, "button": "left",
+                         "clickCount": 1, "buttons": 1 if ev == "mousePressed" else 0}, timeout=8)
+        time.sleep(0.4)
+        seq = [("keyDown", "ShiftLeft", "Shift", 16, 8), ("keyDown", "KeyB", "B", 66, 8),
+               ("keyUp", "KeyB", "B", 66, 8), ("keyUp", "ShiftLeft", "Shift", 16, 0)]
+        for t, code, key, vk, mods in seq:
+            self.ws.cmd("Input.dispatchKeyEvent",
+                        {"type": t, "code": code, "key": key,
+                         "windowsVirtualKeyCode": vk, "modifiers": mods}, timeout=8)
+        # 重建覆铜是异步的:轮询到实铜数稳定(连续两次相同)或超时
+        prev, stable = -1, 0
+        for _ in range(8):
+            time.sleep(settle / 2.0)
+            n = len(self.eda.call("pcb_PrimitivePoured.getAllPrimitiveId", timeout=15) or [])
+            stable = stable + 1 if n == prev and n > 0 else 0
+            prev = n
+            if stable >= 1:
+                break
+        return prev
+
+    def reload_and_reopen(self, project_uuid, pcb_uuid, settle=8):
+        """整页 reload(让布线引擎识别新建板框)后,重开工程+PCB 文档并等加载完。
+        新建板框后必须 save + reload,引擎才认其为闭合板框(否则自动布线报 not closed)。"""
+        self.ws.cmd("Page.reload", {}, timeout=10)
+        time.sleep(settle)
+        # reload 后旧 CDP 连接的执行上下文失效,重连编辑器
+        self.ws = d.connect_editor(d.CDP_PORT)
+        self.eda = eda_api.EDA(validate=False)
+        self.open_project(project_uuid)
+        self.open_document(pcb_uuid)
+        time.sleep(2)
+        return self.has_board_outline()
+
     # --- 原理图 → PCB 同步(importChanges + 自动确认) ---
     def update_pcb_from_schematic(self, pcb_uuid, timeout=40):
         self.eda.call("pcb_Document.importChanges", pcb_uuid, timeout=timeout)
@@ -297,6 +519,56 @@ class Flow:
     # --- DRC ---
     def drc_check(self, timeout=60):
         return self.eda.call("pcb_Drc.check", timeout=timeout)
+
+    # DRC 违规明细的**唯一真相源**是 GUI 面板,不是 API。第二十二章硬验证:`pcb_Drc` 命名空间
+    # 全表只有 check()/getRealTimeDrcStatus() 两个返回**裸 bool**(通过/不通过)的方法,**没有任何**
+    # 取逐条违规(类型/对象/网络/层/说明)的接口;EXTAPI 根下也只有 pcb_Drc / sch_Drc 两个命名空间,
+    # 没有 DrcError 之类可枚举图元。故第二十章「板框→J3 0.9mil 偶发摆放」纯属未读面板的臆测——
+    # 实测密板真实违规是「连接错误(XTAL1/DSIG_N 两网未布通)+ 差分对长度差 1256.7mil>10mil 容差」,
+    # 与板框几何毫无关系。教训:DRC 失败必须**读面板逐条**,严禁靠几何直觉猜。
+    # 本方法即「读面板」的程序化实现:派发内置「Check DRC」算完后,直接抓取 DRC 结果表 DOM,
+    # 把每行解析成 {no,type,object,rule,obj1,obj2,layer,explain}。这样布完即可拿到**真违规清单**
+    # 驱动后续修复(而不是只知道一个 false)。
+    _DRC_SCRAPE = r"""(()=>{
+      var KW=/Connection Error|Differential Pair|Clearance|Width|Spacing|Short|Annular|Hole|Silk|disconnected|tolerance|should be|Net Antenna|Unrouted/i;
+      var out=[];
+      [].slice.call(document.querySelectorAll('table tbody tr')).forEach(function(tr){
+        var tds=[].slice.call(tr.querySelectorAll('td')).map(function(td){return td.textContent.trim();});
+        if(!tds.length) return;
+        var joined=tds.join(' | ');
+        if(!KW.test(joined)) return;                 // 只留 DRC 行,滤掉器件库等其它表
+        // 列序(随版本浮动):No, [Display空], Error Type, Error Object, Rule, Obj1, Obj2, Layer, Explanation
+        var c=tds.filter(function(x){return x!=='';});
+        out.push({raw:c});
+      });
+      return JSON.stringify(out);
+    })()"""
+
+    def read_drc_violations(self, run_check=True, settle=2.0):
+        """读取 **GUI DRC 面板** 的逐条违规清单(API 取不到,只能抓面板 DOM)。
+
+        run_check=True 先派发工具栏「Check DRC」让面板算出并填充结果表,再抓 DOM。
+        返回 list[dict],每条含 raw=该行非空单元格文本列表(No/类型/对象/规则/网络/层/说明)。
+        没有违规则返回 []。这是「发现所有问题」的眼睛:布完即能列出真实违规驱动修复。
+        """
+        if run_check:
+            try:
+                self.eda.call("pcb_Drc.check", timeout=90)
+            except Exception:
+                pass
+            # 同时点工具栏 Check DRC 按钮,确保结果表(GUI)被填充
+            try:
+                ui_click_text(self.ws, ["Check DRC"], settle=settle)
+            except Exception:
+                pass
+            time.sleep(settle)
+        v, e = d.evaluate(self.ws, self._DRC_SCRAPE, await_promise=False, timeout=20)
+        if e or not v:
+            return []
+        try:
+            return json.loads(v)
+        except Exception:
+            return []
 
     # --- 导出 ---
     def _export(self, call_js, out_path, timeout=120):
@@ -323,6 +595,67 @@ class Flow:
 
     def export_pdf(self, out_path, name="PCB"):
         return self._export("window._EXTAPI_ROOT_.pcb_ManufactureData.getPdfFile(%s)" % json.dumps(name), out_path)
+
+    # --- 外部布线器(Freerouting)闭环:DSN 出 / SES 回 ---
+    def export_dsn(self, out_path, name="DSN"):
+        """导出 Specctra **DSN**(外部布线器 Freerouting 的输入)。
+
+        本会话攻克的边界:`pcb_ManufactureData.getDsnFile(fileName)` 返回 Blob,走通用导出
+        blob 通道即落地标准 Specctra DSN(含 structure/boundary/rules/placement/library)。
+        **关键教训**:DSN 必须从**未布线**的板导出(只有摆件+板框+鼠线);若从已布线/已敷铜的板
+        导出,其 wiring/shape 段会引用层 "1"/"2",而 structure 段层名是 TopLayer/BottomLayer,
+        Freerouting 读到层名不匹配会刷 WARNING 并丢弃既有走线。未布线板导出则干净。
+        """
+        return self._export("window._EXTAPI_ROOT_.pcb_ManufactureData.getDsnFile(%s)" % json.dumps(name), out_path)
+
+    def import_ses(self, ses_path, settle=2):
+        """把 Freerouting 布完的 **SES** 回灌进当前 PCB(外部布线结果落库)。
+
+        本会话攻克的边界:`pcb_Document.importAutoRouteSesFile(t)` 的 t **就是一个浏览器 File 对象**
+        (不是字符串、不是 {file}、不是 {fileName,file}——逐一试出来的:File 直传 = 0→47 条铜线落库,
+        其余形参均报错)。于是把磁盘上的 SES 字节 base64 灌进页面、in-page 构造 File 再调用即可。
+        返回导入后的铜线总数。
+        """
+        with open(ses_path, "rb") as fh:
+            b64 = base64.b64encode(fh.read()).decode()
+        js = (r"""(async()=>{var R=window._EXTAPI_ROOT_;var bin=atob("%s");"""
+              r"""var u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);"""
+              r"""var file=new File([u],"route.ses",{type:"text/plain"});"""
+              r"""try{await R.pcb_Document.importAutoRouteSesFile(file);return "OK";}"""
+              r"""catch(e){return "ERR "+String(e&&e.message||e);}})()""") % b64
+        v, e = d.evaluate(self.ws, js, await_promise=True, timeout=60)
+        time.sleep(settle)
+        n = len(self.eda.call("pcb_PrimitiveLine.getAllPrimitiveId", timeout=15) or [])
+        return n
+
+    def rebuild_imported_vias(self):
+        """把 Freerouting/SES 回灌的过孔**逐颗重建为嘉立创自建过孔**,修复"换层过孔不被连通认定"。
+
+        第二十二章硬验证的根因+解法:`importAutoRouteSesFile` 落库的过孔,其图元在位、网对、
+        顶/底铜精确落在同坐标(并查集 min gap=0.00mil),但**嘉立创连通性不认它把两层接通** →
+        面板报焊盘 disconnected(连接错误)。实验证明:删掉该过孔、用 `pcb_PrimitiveVia.create`
+        在**同坐标同参数**重建一颗**嘉立创自建过孔**,该过孔即进嘉立创连通图、两层接通、焊盘连接错误消失。
+
+        api.js 真签名:`Vi(net,x,y,holeDiameter,diameter,viaType=0,blindName,solderMaskExp,lock)`。
+        **务必在 import_ses 之后、敷铜(auto_ground_pour)之前调用**——因为敷铜要在连通确定后才铺,
+        且对已敷铜的板做铜层手术会令敷铜避让塌陷(第二十二章 22.8 一败的教训)。返回重建过孔数。
+        """
+        vids = self.eda.call("pcb_PrimitiveVia.getAllPrimitiveId", timeout=20) or []
+        n = 0
+        for vid in vids:
+            g = self.eda.call("pcb_PrimitiveVia.get", vid, timeout=8) or {}
+            net = g.get("net")
+            if not net:
+                continue
+            try:
+                self.eda.call("pcb_PrimitiveVia.delete", vid, timeout=10)
+                self.eda.call("pcb_PrimitiveVia.create", net, g["x"], g["y"],
+                              g["holeDiameter"], g["diameter"],
+                              g.get("viaType", 0), timeout=15)
+                n += 1
+            except Exception:
+                pass
+        return n
 
     def export_all(self, out_dir, base="Dao"):
         os.makedirs(out_dir, exist_ok=True)
