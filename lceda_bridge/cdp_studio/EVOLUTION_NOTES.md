@@ -154,10 +154,6 @@ scaffold(建工程/原理图/PCB) → open sch → place(放件) → save
   ```
   format 形参可换别的源(Altium/KiCad/EAGLE…,具体枚举待逐一试)。
 - **逆向比对原语**(比 netlist 更直接):`sys_Tool.schematicComparison` / `pcbComparison` / `netlistComparison`。
-- **实测**:in-page 一次 evaluate 内 `file=getProjectFileByProjectUuid(src)` →
-  `await importProjectByProjectFile(file)` **返回无错(ret undefined)**;但本会话编辑器已退化
-  (`getAllProjectsUuid` 恒返回 0、当前工程停在空脚手架),**导入落点(新建工程 vs 并入当前)未能确认**。
-  ⇒ 需在**新开干净实例**上:导入后立即读返回/轮询工程列表(或走 REST `pro.lceda.cn/api` 查工程)核实落点。
 
 ### ★ 导入网关已确认全格式(File→Import 菜单实拍)
 LCEDA Pro 的 **File→Import** 支持几乎全部工业格式,**逆向工程标的可直接喂入**:
@@ -171,17 +167,26 @@ LCEDA Pro 的 **File→Import** 支持几乎全部工业格式,**逆向工程标
   if(a) return await rpcCall("DMT_Project.getProjectInfo", a);   // a=新工程 uuid
   ```
   即 `r=saveTo`(目标文件夹/位置)、`s=librariesImportSetting`。
-- **实测穷尽**:`file`(in-page,51KB)+ `saveTo`∈{新建文件夹, 'Personal'(workspace)} 调用 →
-  rpc **恒返回 falsy**(无工程产生);且 `dmt_Folder.createFolder` 也返回 undefined。
-  ⇒ **该导入 rpc 家族在 headless CDP 上下文整体不生效**(疑 File 对象过 rpc 到后端 worker 不可序列化、
-  或需真实 user-gesture / 有效文件夹)。`createProject` 能成、`createFolder`/`import` 不成 —— 边界清晰。
-- ⇒ **可靠的逆向导入路径 = 驱动 UI Import 向导**(computer 工具点 File→Import→<格式> + CDP
-  `Page.setInterceptFileChooserDialog`/`DOM.setFileInputFiles` 喂入磁盘上的真实板文件)。这是下一步的离散任务。
+- **★ 重大修正(此前误判)**:之前以为编辑器退化(`getAllProjectsUuid` 恒 0)——**错**。
+  反出实现:`getAllProjectsUuid(teamUuid, folderUuid, workspaceUuid)`,**不传 teamUuid 直接返回 `[]`**。
+  传 `teamUuid='5bd8145e…'(Personal)` → **返回 90 个真实工程**。编辑器一直健康。
+  同理 `createFolder(name, teamUuid, parentFolderUuid)`、`createProject(friendlyName,name,teamUuid,folderUuid,...)` 都需 teamUuid;
+  传齐后 `createFolder` 正常返回 folder uuid。
+- **实测穷尽(确定结论)**:`file`(in-page,从 getProjectFileByProjectUuid,未过 CDP)+ `saveTo`=有效 folder uuid
+  调用 `importProjectByProjectFile` → rpc **仍恒返回 falsy**(folder 内查无新工程)。
+  ⇒ **`saveTo` 不是症结;`importProjectByProjectFile` 的后端 rpc 在程序化调用下不生效**
+  (疑 projectFile 需经真实上传通道 / user-gesture 来源的 File,client 重建的 File 后端拒收)。
+- **UI Import 也实测**:File→Import→JLCEDA(Professional) 点击后 **既不触发 `<input type=file>` 也不触发
+  `showOpenFilePicker`**(已 monkeypatch 计数,fsapi=0 input=0)——该项可能先弹应用内模态再选文件,或需更精细驱动。
+- ⇒ **可达的逆向工程不必卡在导入**:账号内已有 **90 个真实工程**,可直接 `打开→取网表(.enet)→
+  schematic/pcb/netlistComparison 比对→分析设计`,这条**完全程序化可达**,先用它跑通逆向比对闭环。
 
 ### 反向路线下一步(可执行顺序)
-1. **驱动 Import 向导导入真实开源板**(KiCad/Altium 工程或 .epro2)→ 得可编辑器件+网络 →
-   `importChanges` 下传 PCB → `schematicComparison`/`pcbComparison`/`netlistComparison` 与参考逐层比对。
-   这一条**同时作废鼠标放件并兑现逆向工程**。(程序化 `importProjectByProjectFile` 的 r/s 形参可并行反出。)
+1. **用账号内 90 个真实工程跑通逆向比对闭环**(无需导入):打开工程→取 .enet 网表→
+   `schematic/pcb/netlistComparison` 两工程逐层比对→暴露差异。**完全程序化可达,优先做。**
+2. **导入真实外部板**(KiCad/Altium):程序化 rpc 不生效,留两条路——
+   (a) 更精细驱动 UI Import(可能先弹应用内模态);(b) monkeypatch `showOpenFilePicker` 返回我方 File
+   绕过原生选择器、走完整 UI 导入管线。
 2. 取一块真实开源硬件板(公开 Gerber/网表/BOM)→ `importProjectByProjectFile` 或
    网表导入 → 还原可编辑设计。
 3. **FreeRouting 闭环**:导出 Specctra DSN → FreeRouting 跑线 → `importAutoRouteSesFile` 回灌。
