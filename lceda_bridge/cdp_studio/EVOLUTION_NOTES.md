@@ -463,3 +463,14 @@ oshwhub `d6f7528f939246efa27ed7e0ba022c6f`(立创课程案例,3.1 MB .epro2 / 10
 - `demo_project_clone.py`:对**任意社区 uuid**端到端克隆(已验证非自有公开工程)。
 - 社区接入要点:oshwhub 同源 `/api/project/{uuid}` 取元数据;
   `getProjectFileByProjectUuid(<oshwhubUuid>)` 取整包 .epro2(公开工程不受所有权门控)。
+
+### 多 Board 边界·根因定位(深挖)
+拆解源 .epru 的 BOARD 段:每个 BOARD DOCHEAD 后仅 `META{"title":"Board1_1","zIndex":1}`
+(+DELETE_DOC 标记),**不含 board→sch→pcb 的父子拓扑**。即:
+- 离线字典(.epru)携带 board 的 META(标题/层序)与全部库实体,但**多板装配拓扑存于服务端工程结构**,
+  不在离线包内(与"DOCHEAD 无 title 须服务端补"同源)。
+- 单次 worker import 收口于**单一 board 上下文**:返回 boardMap/schematicMap/pcbMap 各 ×1
+  (源有 4),只实例化主板那套文档。
+→ **解法(下一模块):导库后按 BOARD META 逐块注册工程结构**——以 import 映射得到的新 doc uuid +
+  各 BOARD 的 title/zIndex,调用结构/板管理 worker 端点逐块建板并挂载其 sch/pcb 子文档,
+  补齐离线包缺失的多板拓扑。这是"结构注册"模块,非单帧 import 所能覆盖。
