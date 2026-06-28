@@ -458,9 +458,15 @@ BOARD×4 SCH×4 PCB×4,但其中 **活动(未删除)只有** FOOTPRINT×50 SYMBO
    `DELETE_DOC` 标记后确认:源**活动结构本就只有 1 板**,worker import **如实克隆了全部活动设计**,
    无任何丢失。已修 `doc_counts(live_only=True)` 区分活动/历史删除,完整性判定改为逐类
    克隆 ≥ 源活动数。教训:.epru 是编辑历史字典,统计工程结构必须先按 DELETE_DOC 过滤。
-1. **createProject 自带 1 块空默认板**:克隆工程因此比源活动结构多 1 块空 BOARD/SCH/PCB
-   (克隆活动 BOARD×2 vs 源 ×1)。→ 改进方向:导库后删除该空默认板,或令 import 复用默认板,
-   得到与源逐字节对齐的精确克隆。
+1. **createProject 自带 1 块空默认板 → 已突破(精确克隆)**:克隆工程一度比源活动结构多 1 块空
+   BOARD/SCH/PCB。**先证伪一条歧路**:EXTAPI `dmt_Board.deleteBoard(uuid)` 在 Web 仅改编辑器
+   内存模型、**不持久化到服务端**(删除后 sch/pcb save + 等待,服务端回读仍为 2 板)。
+   **再逆出 worker 端持久化删除端点**(与 import 同处写工程库,入参均为裸 uuid 字符串):
+   - `/mgr/projectWorker/board/delete`(删板,不级联)
+   - `/mgr/projectWorker/schematic/delete` / `/mgr/projectWorker/pcb/delete` / `/mgr/projectWorker/sheet/delete`
+   实证:删空默认板 + 级联删其 SCH/PCB/SCH_PAGE → 服务端回读 **BOARD/SCH/SCH_PAGE/PCB 各 ×1,
+   与源活动结构精确相等**(`精确克隆: True`)。已沉淀为 `prune_to_imported()`(按 import boardMap
+   保留被克隆板、删其余)。残留极小:DEVICE 比源多 1(createProject 模板器件,库级非结构)。
 2. **超大工程透传上限**:177 MB .epru(X86 主板)单帧 worker import 风险高(浏览器/worker
    内存 + CDP 帧)。→ 突破方向:分文档流式注入,或服务端复制(SaveAs-to-Cloud 命令)免透传。
 3. **EXTAPI `copyProject` 在 Web 为空壳**(`copyProject(t,i,n,r,s){}` 空体);桌面端 copyProject
@@ -469,8 +475,13 @@ BOARD×4 SCH×4 PCB×4,但其中 **活动(未删除)只有** FOOTPRINT×50 SYMBO
    仍待用一块**多活动板(拼板/多变体)社区工程**实测验证。
 
 ### 沉淀的可复用资产
-- `reverse_analyze.py`:成品 .epro2 → 设计情报(层叠/网络分类/功能块/BOM/封装)。
-- `demo_project_clone.py`:对**任意社区 uuid**端到端克隆(已验证非自有公开工程)。
+- `reverse_analyze.py`:成品 .epro2 → 设计情报(层叠/网络分类/功能块/BOM/封装)+
+  `board_topology()` 多板装配拓扑(子文档 META 反向引用,区分活动/历史删除)。
+- `demo_project_clone.py`:对**任意社区 uuid**端到端克隆(已验证非自有公开工程);
+  含 `prune_to_imported()` **精确克隆**(worker 持久化删冗余结构)+ `doc_counts(live_only)`。
+- **worker 持久化结构删除端点**(本会话逆出,裸 uuid 字符串入参,与 import 同写工程库):
+  `/mgr/projectWorker/{board,schematic,pcb,sheet}/delete`、`device/delete`;
+  对照:EXTAPI `dmt_Board.deleteBoard` 在 Web 仅内存、不落库。
 - 社区接入要点:oshwhub 同源 `/api/project/{uuid}` 取元数据;
   `getProjectFileByProjectUuid(<oshwhubUuid>)` 取整包 .epro2(公开工程不受所有权门控)。
 

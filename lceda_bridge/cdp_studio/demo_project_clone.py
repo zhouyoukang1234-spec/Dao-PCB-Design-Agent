@@ -90,6 +90,89 @@ def doc_counts(epru_str, live_only=False):
     return dict(c)
 
 
+def _live_struct_docs(epru_str):
+    """从 .epru 解析活动(未删除)的结构文档,带其父级引用。
+
+    返回 {'BOARD':[uuid...], 'SCH':[(uuid,boardUuid)...],
+          'PCB':[(uuid,boardUuid)...], 'SCH_PAGE':[(uuid,schUuid)...]}。
+    """
+    out = {"BOARD": [], "SCH": [], "PCB": [], "SCH_PAGE": []}
+    cur = None  # [docType, uuid, deleted, meta]
+    for ln in epru_str.split("\n"):
+        ln = ln.strip()
+        if not ln or "||" not in ln:
+            continue
+        h, p = ln.split("||", 1)
+        if p.endswith("|"):
+            p = p[:-1]
+        head = json.loads(h)
+        ty = head.get("type")
+        if ty == "DOCHEAD":
+            pj = json.loads(p)
+            cur = [pj.get("docType"), pj.get("uuid"), False, None]
+        elif cur is not None and ty == "DELETE_DOC":
+            cur[2] = True
+        elif cur is not None and ty == "META" and cur[3] is None:
+            try:
+                cur[3] = json.loads(p)
+            except Exception:
+                cur[3] = {}
+            dt, uuid, deleted, meta = cur
+            if deleted:
+                continue
+            meta = meta or {}
+            if dt == "BOARD":
+                out["BOARD"].append(uuid)
+            elif dt == "SCH":
+                out["SCH"].append((uuid, meta.get("board")))
+            elif dt == "PCB":
+                out["PCB"].append((uuid, meta.get("board")))
+            elif dt == "SCH_PAGE":
+                out["SCH_PAGE"].append((uuid, meta.get("schematic")))
+    return out
+
+
+# 已逆出的 worker 端**持久化**结构删除端点(入参均为裸 uuid 字符串):
+#   /mgr/projectWorker/board/delete       删板(不级联子文档)
+#   /mgr/projectWorker/schematic/delete   删原理图
+#   /mgr/projectWorker/pcb/delete         删 PCB
+#   /mgr/projectWorker/sheet/delete       删原理图页
+# 注意:EXTAPI dmt_Board.deleteBoard 在 Web 仅改编辑器内存模型、**不持久化到服务端**;
+# 工程级结构删除必须走下面的 worker 总线(与 import 同处写工程库),方可落库。
+WK_DEL = {
+    "BOARD": "/mgr/projectWorker/board/delete",
+    "SCH": "/mgr/projectWorker/schematic/delete",
+    "PCB": "/mgr/projectWorker/pcb/delete",
+    "SCH_PAGE": "/mgr/projectWorker/sheet/delete",
+}
+
+
+def prune_to_imported(ws, bus, epru_str, imported_board_uuids, timeout=20):
+    """精确克隆:经 worker 总线删除不属于 import 板(boardMap)的板及其级联子文档。
+
+    createProject 自带 1 块空默认板;import 另建被克隆的板。这里把所有 board 不在
+    `imported_board_uuids` 的 BOARD/SCH/PCB/SCH_PAGE 经 worker 持久化删除,得到与源
+    活动结构精确对齐的克隆(BOARD/SCH/PCB/SCH_PAGE 数 == 源)。
+    """
+    s = _live_struct_docs(epru_str)
+    spurious_boards = set(b for b in s["BOARD"] if b not in imported_board_uuids)
+    spurious_sch = {u for u, b in s["SCH"] if b in spurious_boards}
+    spurious_pcb = [u for u, b in s["PCB"] if b in spurious_boards]
+    spurious_pages = [u for u, sch in s["SCH_PAGE"] if sch in spurious_sch]
+    removed = {"BOARD": [], "SCH": [], "PCB": [], "SCH_PAGE": []}
+    plan = [("SCH_PAGE", spurious_pages), ("PCB", spurious_pcb),
+            ("SCH", sorted(spurious_sch)), ("BOARD", sorted(spurious_boards))]
+    for dt, uuids in plan:
+        for u in uuids:
+            full, err = C.wrpc(ws, bus, WK_DEL[dt], u, wait=timeout)
+            ok = (not err) and full and '"success":true' in full
+            if ok:
+                removed[dt].append(u)
+            else:
+                print("worker %s 删除告警 %s:" % (dt, u), err or (full or "")[:80])
+    return removed
+
+
 def run(src_proj=SRC_DEFAULT, clone_name=None):
     clone_name = clone_name or ("DAO_CLONE_%d" % int(time.time()))
     f = eda_flow.Flow()
@@ -128,25 +211,40 @@ def run(src_proj=SRC_DEFAULT, clone_name=None):
     m = result.get("result", {}).get("map", {})
     print("import OK,映射:", {k: len(v) for k, v in m.items() if isinstance(v, dict)})
 
+    # 3.5) 精确克隆:经 worker 总线删除不属于 import 板的空默认板及其级联子文档 ----
+    imported_boards = set((m.get("boardMap") or {}).values())
+    try:
+        f.call("sch_Document.save", timeout=20)
+    except Exception as e:
+        print("save warn:", repr(e)[:100])
+    time.sleep(3)
+    if imported_boards:
+        pre_bytes, _ = download_epro2(ws, clone)
+        removed = prune_to_imported(ws, bus, epru_text(pre_bytes), imported_boards)
+        if any(removed.values()):
+            print("worker 删除冗余结构:", {k: len(v) for k, v in removed.items() if v})
+
     # 4) save + 服务器回读验证 ----------------------------------------------
     try:
         f.call("sch_Document.save", timeout=20)
     except Exception as e:
         print("save warn:", repr(e)[:100])
-    time.sleep(4)
+    time.sleep(5)
     clone_bytes, clone_fname = download_epro2(ws, clone)
     clone_counts = doc_counts(epru_text(clone_bytes), live_only=True)
     print("克隆 .epro2:", clone_fname, len(clone_bytes), "字节")
     print("克隆 活动子文档:", clone_counts)
 
-    # 完整性:克隆的活动设计应 ≥ 源活动设计(库 + BOARD/SCH/PCB)。
-    # 注意 createProject 自带 1 块空默认板,故 BOARD/SCH/PCB 克隆数会比源多 1。
+    # 完整性:克隆的活动设计应 ≥ 源活动设计(库 + BOARD/SCH/PCB)。删除空默认板后,
+    # BOARD/SCH/PCB 应与源活动数精确相等(exact);未删则比源多 1(createProject 默认板)。
     check = ("FOOTPRINT", "SYMBOL", "DEVICE", "BOARD", "SCH", "PCB")
     ok = all(clone_counts.get(k, 0) >= src_counts.get(k, 0) for k in check)
-    print("活动设计完整(克隆 ≥ 源,逐类):", ok)
+    exact = all(clone_counts.get(k, 0) == src_counts.get(k, 0)
+                for k in ("BOARD", "SCH", "PCB"))
+    print("活动设计完整(克隆 ≥ 源,逐类):", ok, "| 精确克隆(BOARD/SCH/PCB 相等):", exact)
     return {"src": src_proj, "clone": clone, "map": m,
             "src_live": src_counts, "src_all": src_all,
-            "clone_live": clone_counts, "ok": ok}
+            "clone_live": clone_counts, "ok": ok, "exact": exact}
 
 
 if __name__ == "__main__":
