@@ -85,6 +85,67 @@ def _block_of(part_id):
     return "其他"
 
 
+def board_topology(epru_text):
+    """从子文档 META 的反向引用重建多板装配拓扑(区分活动/历史删除)。
+
+    .epru 子文档 META 携带父子引用:
+      SCH.META.board=<boardUuid>, PCB.META.board=<boardUuid>,
+      SCH_PAGE.META.schematic=<schUuid>, BOARD.META.title=<板名>。
+    段首 DELETE_DOC{isDelete:true} 标记历史删除。据此把活动 SCH/PCB 按 board 归组,
+    使系统对**多活动板**工程(拼板/多变体)可按板分组逐块迁移。
+    """
+    docs = []  # {docType,uuid,deleted,meta}
+    cur = None
+    for ln in epru_text.split("\n"):
+        ln = ln.strip()
+        if not ln or "||" not in ln:
+            continue
+        h, p = ln.split("||", 1)
+        if p.endswith("|"):
+            p = p[:-1]
+        try:
+            head = json.loads(h)
+        except Exception:
+            continue
+        ty = head.get("type")
+        if ty == "DOCHEAD":
+            try:
+                pj = json.loads(p)
+            except Exception:
+                pj = {}
+            cur = {"docType": pj.get("docType"), "uuid": pj.get("uuid"),
+                   "deleted": False, "meta": None}
+            docs.append(cur)
+        elif cur is not None and ty == "DELETE_DOC":
+            cur["deleted"] = True
+        elif cur is not None and ty == "META" and cur["meta"] is None:
+            try:
+                cur["meta"] = json.loads(p)
+            except Exception:
+                cur["meta"] = None
+
+    boards = {}
+    for d in docs:
+        if d["docType"] == "BOARD" and not d["deleted"]:
+            m = d["meta"] or {}
+            boards[d["uuid"]] = {"title": m.get("title"), "zIndex": m.get("zIndex"),
+                                 "schematics": [], "pcbs": []}
+    for d in docs:
+        if d["deleted"] or not d["meta"]:
+            continue
+        b = d["meta"].get("board")
+        if d["docType"] == "SCH" and b in boards:
+            boards[b]["schematics"].append({"uuid": d["uuid"], "title": d["meta"].get("title")})
+        elif d["docType"] == "PCB" and b in boards:
+            boards[b]["pcbs"].append({"uuid": d["uuid"], "title": d["meta"].get("title")})
+
+    deleted_boards = sum(1 for d in docs if d["docType"] == "BOARD" and d["deleted"])
+    return {"live_boards": list(boards.values()),
+            "live_board_count": len(boards),
+            "deleted_board_count": deleted_boards,
+            "multi_active_board": len(boards) > 1}
+
+
 def analyze(epro2_path):
     epru, images = load_epru(epro2_path)
     try:
@@ -164,6 +225,7 @@ def analyze(epro2_path):
         "epru_bytes": len(epru),
         "images": len(images),
         "docTypes": dict(docs),
+        "board_topology": board_topology(epru),
         "counts": {
             "components_pcb": pcb_components,
             "nets_pcb_named": len(nets),
