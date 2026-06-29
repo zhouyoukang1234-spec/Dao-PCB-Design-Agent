@@ -473,8 +473,13 @@ class Flow:
         args = [a for a in (net, layer) if a is not None]
         return self.eda.call("pcb_PrimitiveLine.getAllPrimitiveId", *args, timeout=15)
 
-    def pcb_via(self, net, x, y):
-        return self.eda.call("pcb_PrimitiveVia.create", net, x, y, timeout=20)
+    def pcb_via(self, net, x, y, hole=24, diameter=40, via_type=0):
+        """落一颗过孔(逆出真签名 `pcb_PrimitiveVia.create(net,x,y,holeDiameter,diameter,
+        viaType,...)`)。**实测:在某网 SMD 焊盘坐标处落同网过孔,即把该焊盘所在的顶层
+        与底层接通**——据此可把走线落到底层而焊盘仍连(2 层布线的关键)。注意 hole/diameter
+        不可省(省了报"参数不正确")。返回过孔 primitiveId。"""
+        return self.eda.call("pcb_PrimitiveVia.create", net, x, y,
+                             hole, diameter, via_type, timeout=20)
 
     # --- 程序化 PCB 摆件(确定性,原理图放件的 PCB 镜像)---
     def pcb_place_det(self, comp_id, x, y, rotation=None, layer=None, timeout=20):
@@ -515,10 +520,13 @@ class Flow:
                 out.setdefault(nm, []).append((p["x"], p["y"]))
         return out
 
-    def pcb_route_net(self, net, layer=1, width=10, orthogonal=True, escape=0):
+    def pcb_route_net(self, net, layer=1, width=10, orthogonal=True, escape=0, via=False):
         """把一个网的引脚用**实铜走线**串接(菊花链)。返回创建的走线 primitiveId 列表。
         无需板框、不经 GUI——纯 extapi `pcb_PrimitiveLine.create` 落铜。
 
+        - via=True:走**底层**时(layer!=1)在每个引脚处先落一颗同网过孔,把顶层 SMD
+          焊盘接到底层,使底层走线连得上焊盘。配合「不同网走不同层」可让**交叉网零冲突**
+          (异层几何交叉不触发 clearance)。
         - orthogonal=True:L 形(先水平后竖直,中点拐角);False:直连。
         - escape!=0:**避让走线**。器件同步后多在同一行(引脚共 y),直连/ L 形的水平段
           会横穿中间的他脚而触发 DRC「Pad to Track」间距违规。开 escape 则每段先从两端
@@ -528,6 +536,9 @@ class Flow:
         """
         pts = self.pcb_pins_by_net(net).get(net, [])
         ids = []
+        if via and layer != 1:
+            for (px, py) in pts:
+                self.pcb_via(net, px, py)
         if escape and pts:
             corr_y = (min(y for _, y in pts) - escape) if escape > 0 \
                 else (max(y for _, y in pts) - escape)
@@ -568,6 +579,31 @@ class Flow:
                     esc = 0
                 out[net] = len(self.pcb_route_net(net, layer, width, orthogonal, esc))
                 k += 1
+        return out
+
+    def pcb_route_layers(self, width=10, top=1, bottom=2, escape=1000):
+        """**2 层避让布线**(密集/交叉拓扑的归一解):各多脚网**轮流分到顶层/底层**,
+        且每网都走**逃逸走廊**(escape,离开焊盘行)。两重正交自由度叠加:
+          ① 走廊离开焊盘行 → 不撞**本层**任何焊盘(解决「直线横穿中间脚」的 Pad-to-Track);
+          ② 顶/底分层 → **异层网几何交叉不触发 clearance**(解决「两网必相交」)。
+        故即便两网在 xy 上高度共线/十字交叉,也零违规。底层网每脚落过孔接顶层焊盘。
+        走廊按层分侧(顶层走下方、底层走上方)并按 |escape| 递增错开。
+        返回 {net: {'layer':层, 'segs':段数}}。"""
+        by = self.pcb_pins_by_net()
+        out = {}
+        kt = kb = 0
+        for net, pts in by.items():
+            if not (net and len(pts) >= 2):
+                continue
+            if (kt + kb) % 2 == 0:                 # 偶数网→顶层、走廊朝下
+                lyr, esc = top, escape * (kt + 1)
+                kt += 1
+            else:                                   # 奇数网→底层(过孔)、走廊朝上
+                lyr, esc = bottom, -escape * (kb + 1)
+                kb += 1
+            segs = self.pcb_route_net(net, lyr, width, orthogonal=True,
+                                      escape=esc, via=(lyr != top))
+            out[net] = {"layer": lyr, "segs": len(segs)}
         return out
 
     # --- 原生自动布线(GUI:Route → Auto Routing → Run) ---
