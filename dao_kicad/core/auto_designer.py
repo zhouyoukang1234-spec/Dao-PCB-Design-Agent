@@ -193,13 +193,27 @@ def auto_design(spec: DesignSpec, output_dir: str | Path) -> DesignResult:
         cu_layers = [pcbnew.F_Cu, pcbnew.B_Cu]
     inner_layers = [ly for ly in cu_layers
                     if ly not in (pcbnew.F_Cu, pcbnew.B_Cu)]
-    plane_nets = ["GND"]
+    rail_cands = sorted(
+        (n for n in pn if n != "GND" and pad_net_counts.get(n, 0) >= 4),
+        key=lambda n: -pad_net_counts[n])
+    layer_net: dict = {}  # copper layer -> plane net (GND is the default)
     if inner_layers:
-        cands = sorted(
-            (n for n in pn if n != "GND" and pad_net_counts.get(n, 0) >= 4),
-            key=lambda n: -pad_net_counts[n])
-        plane_nets += cands[:max(0, len(inner_layers) - 1)]
-    extra_planes = plane_nets[1:]
+        # GND owns the outer layers and any spare inner layer; each extra
+        # high-fanout rail owns one inner layer (keep >=1 inner for GND).
+        nrails = min(len(rail_cands), max(0, len(inner_layers) - 1))
+        for i in range(nrails):
+            layer_net[inner_layers[i]] = rail_cands[i]
+        extra_planes = rail_cands[:nrails]
+    elif rail_cands:
+        # 2-layer: no inner layer to spare, so deliver the dominant rail as a
+        # plane poured on F_Cu around the signal tracks while GND owns B_Cu.
+        # Both planes are skipped from routing; GND pads on F_Cu are stitched
+        # down to the B_Cu plane with vias.
+        layer_net[pcbnew.F_Cu] = rail_cands[0]
+        extra_planes = rail_cands[:1]
+    else:
+        extra_planes = []
+    plane_nets = ["GND"] + extra_planes
 
     skip = set(plane_nets)
     # Total connection demand (incl. plane-delivered nets) so completion %
@@ -224,15 +238,21 @@ def auto_design(spec: DesignSpec, output_dir: str | Path) -> DesignResult:
     # layer. One zone per (layer, net) avoids zones_intersect.
     m = 0.5
     corners = [(m, m), (W - m, m), (W - m, H - m), (m, H - m)]
-    layer_net = {inner_layers[i]: net for i, net in enumerate(extra_planes)}
     for ly in cu_layers:
         b.add_zone(corners, net_name=layer_net.get(ly, 'GND'), layer=ly,
                    solid_connection=True)
-    # Stitch each inner-plane rail's pads down to its plane with a via.
-    # Foreign-pad geometry (other nets) so a stitching via doesn't land on a
-    # neighbour's through-hole/pad (hole_clearance / shorting). For each rail
-    # pad we try the centre first, then small in-pad offsets, keeping the via
-    # on its own pad copper while dodging foreign pads.
+    # Which copper layers carry each plane net.
+    plane_layers: dict = {}
+    for ly in cu_layers:
+        plane_layers.setdefault(layer_net.get(ly, 'GND'), set()).add(ly)
+
+    # Stitch plane-net pads down to their plane with a via. An SMD pad whose
+    # own layer already carries its plane needs nothing; one on a layer without
+    # its plane (e.g. an F_Cu GND pad over a B_Cu-only GND plane, or any rail
+    # pad over an inner plane) gets a via. Through-hole pads span every layer
+    # so already touch their plane. Foreign-pad geometry lets the via dodge a
+    # neighbour's pad/hole (hole_clearance / shorting): we try the pad centre
+    # first, then small in-pad offsets, staying on the pad's own copper.
     via_r = 0.45 / 2
     foreign = []  # (x, y, half_extent, net)
     for fp in b.board.GetFootprints():
@@ -253,19 +273,25 @@ def auto_design(spec: DesignSpec, output_dir: str | Path) -> DesignResult:
 
     for fp in b.board.GetFootprints():
         for p in fp.Pads():
-            if p.GetNetname() in extra_planes:
-                pos = p.GetPosition()
-                cx, cy = pcbnew.ToMM(pos.x), pcbnew.ToMM(pos.y)
-                psz = p.GetSize()
-                room = max(0.0, min(pcbnew.ToMM(psz.x),
-                                    pcbnew.ToMM(psz.y)) / 2 - via_r)
-                spot = (cx, cy)
-                for ddx, ddy in ((0, 0), (room, 0), (-room, 0),
-                                 (0, room), (0, -room)):
-                    if _via_clear(cx + ddx, cy + ddy, p.GetNetname()):
-                        spot = (cx + ddx, cy + ddy)
-                        break
-                b.add_via(spot[0], spot[1], 0.45, 0.2, p.GetNetname())
+            net = p.GetNetname()
+            if net not in plane_nets:
+                continue
+            if p.GetDrillSize().x > 0:
+                continue  # through-hole: spans layers, already on its plane
+            if any(p.IsOnLayer(ly) for ly in plane_layers.get(net, ())):
+                continue  # pad's layer already carries this plane
+            pos = p.GetPosition()
+            cx, cy = pcbnew.ToMM(pos.x), pcbnew.ToMM(pos.y)
+            psz = p.GetSize()
+            room = max(0.0, min(pcbnew.ToMM(psz.x),
+                                pcbnew.ToMM(psz.y)) / 2 - via_r)
+            spot = (cx, cy)
+            for ddx, ddy in ((0, 0), (room, 0), (-room, 0),
+                             (0, room), (0, -room)):
+                if _via_clear(cx + ddx, cy + ddy, net):
+                    spot = (cx + ddx, cy + ddy)
+                    break
+            b.add_via(spot[0], spot[1], 0.45, 0.2, net)
 
     # Step 8: Save, then reload and fill. ZONE_FILLER segfaults on a
     # freshly-built in-memory board, so we round-trip through disk first;
