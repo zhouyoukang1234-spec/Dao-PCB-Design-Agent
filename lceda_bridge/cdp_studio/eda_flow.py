@@ -1857,6 +1857,61 @@ class Flow:
         """停止计算飞线。"""
         return self.eda.call("pcb_Document.stopCalculatingRatline", timeout=10)
 
+    # ==================== PCB 文档高级操作 ====================
+
+    def pcb_clear_routing(self):
+        """清除 PCB 所有布线(tracks + vias)。"""
+        return self.eda.call("pcb_Document.clearRouting", timeout=15)
+
+    def pcb_navigate_to(self, x, y):
+        """导航/缩放到指定坐标。"""
+        return self.eda.call("pcb_Document.navigateToCoordinates", x, y, timeout=10)
+
+    def pcb_navigate_to_region(self, x1, y1, x2, y2):
+        """导航/缩放到指定区域。"""
+        return self.eda.call("pcb_Document.navigateToRegion", x1, y1, x2, y2, timeout=10)
+
+    def pcb_get_filter_config(self):
+        """获取 PCB 显示过滤配置(COMPONENT/TRACK/VIA/POUR 等可见性)。"""
+        return self.eda.call("pcb_Document.getCurrentFilterConfiguration", timeout=10)
+
+    def pcb_get_canvas_origin(self):
+        """获取画布原点。"""
+        return self.eda.call("pcb_Document.getCanvasOrigin", timeout=10)
+
+    def pcb_set_canvas_origin(self, x, y):
+        """设置画布原点。"""
+        return self.eda.call("pcb_Document.setCanvasOrigin", x, y, timeout=10)
+
+    def pcb_import_autoroute_json(self, data):
+        """导入自动布线 JSON 数据(来自外部路由器)。"""
+        return self.eda.call("pcb_Document.importAutoRouteJsonFile", data, timeout=30)
+
+    def pcb_import_dsn_ses(self, data):
+        """导入 DSN SES 布线结果(来自 Freerouting 等外部路由器)。"""
+        return self.eda.call("pcb_Document.importAutoRouteSesFile", data, timeout=30)
+
+    # ==================== pcb_Primitive (图元查询) ====================
+
+    def pcb_get_primitive_type(self, prim_id):
+        """获取图元类型(COMPONENT/LINE/VIA/PAD/POUR 等)。"""
+        return self.eda.call("pcb_Primitive.getPrimitiveTypeByPrimitiveId", prim_id, timeout=10)
+
+    def pcb_get_primitive(self, prim_id):
+        """获取图元完整数据。"""
+        return self.eda.call("pcb_Primitive.getPrimitiveByPrimitiveId", prim_id, timeout=10)
+
+    def pcb_get_primitives_bbox(self, prim_ids):
+        """获取多个图元的包围盒 {minX, minY, maxX, maxY}。"""
+        return self.eda.call("pcb_Primitive.getPrimitivesBBox", prim_ids, timeout=10)
+
+    def pcb_get_board_bbox(self):
+        """获取整板包围盒(所有组件的 BBox)。"""
+        cids = self.pcb_component_ids()
+        if not cids:
+            return None
+        return self.eda.call("pcb_Primitive.getPrimitivesBBox", cids, timeout=10)
+
     # ==================== 库分类管理 ====================
 
     def get_classification_tree(self):
