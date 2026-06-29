@@ -7,6 +7,8 @@ No abstractions — direct control over every export parameter.
 
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
@@ -69,10 +71,19 @@ class ExportEngine:
         for layer_id, suffix, _desc in layer_plan:
             if not self.board.IsLayerEnabled(layer_id):
                 continue
-            plot_ctrl.OpenPlotfile(suffix, pcbnew.PLOT_FORMAT_GERBER, suffix)
-            plot_ctrl.SetLayer(layer_id)
-            plot_ctrl.PlotLayer()
-            plot_ctrl.ClosePlot()
+            # Suppress KiCad 9 SWIG "Invalid board layer -1" cosmetic warning
+            old_stderr = os.dup(2)
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, 2)
+            try:
+                plot_ctrl.OpenPlotfile(suffix, pcbnew.PLOT_FORMAT_GERBER, suffix)
+                plot_ctrl.SetLayer(layer_id)
+                plot_ctrl.PlotLayer()
+                plot_ctrl.ClosePlot()
+            finally:
+                os.dup2(old_stderr, 2)
+                os.close(devnull)
+                os.close(old_stderr)
 
         # Collect generated files
         files = sorted(output_dir.glob("*"))

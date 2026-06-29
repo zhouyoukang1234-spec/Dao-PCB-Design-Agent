@@ -1,32 +1,47 @@
 """
-PCB Design Wisdom — Distilled from 250 Practice Boards
+PCB Design Wisdom — Distilled from 350 Practice Boards
 
 为学者日益，闻道者日损。损之又损，以至于无为，无为而无不为。
 
 This module captures the essential patterns discovered through
-250 board designs spanning every category of PCB:
+350 board designs spanning every category of PCB:
 
   Power (PSU, BMS, BLDC, MPPT, VFD, PoE, Solar, Qi, TEC, EV-BMS,
          WPT-Tx, Induction Heater, Supercap UPS, MPPT-30A, Piezo HV,
-         Peltier PID, LED Dimmer, ESC 6-FET, DC Motor, LED Strip)
+         Peltier PID, LED Dimmer, ESC 6-FET, DC Motor, LED Strip,
+         IGBT Driver, Boost 400V, Class-D Amp, PoE Splitter, Solar Inv,
+         USB-PD Sink, BLDC FOC 6-FET, Bench PSU)
   Digital (MCU, FPGA-ICE40, Server BMC, RISC-V SoC, Drone ESC,
-           RTC, Keypad, IR Remote, MIDI Controller)
+           RTC, Keypad, IR Remote, MIDI Controller, E-Paper,
+           Thermostat WiFi, RTOS Dev Board, Piezo Buzzer)
   Mixed-Signal (ADC, DAC, Audio, ECG, Stethoscope, LiDAR, Ultrasonic,
                 Bioimpedance, Strain Gauge, ESR Meter, Acoustic Modem,
                 Smoke Detector, Load Cell 4ch, I2S Amp, PLC Modem,
-                USB DAC Hi-Res, Power Quality Analyzer, TDC Picosecond)
+                USB DAC Hi-Res, Power Quality Analyzer, TDC Picosecond,
+                AHRS, Air Data, ECG 3-Lead, EEG 8ch, Pulse Ox, Blood Press,
+                PMT Preamp, DAQ USB, Current Clamp, Scope Frontend,
+                SPDIF Conv, ADC 24-bit, Hall 3-phase, Power Analyzer)
   RF (LoRa, Radar, SDR, GPS, UWB, NFC, Satellite, BLE, Thread,
-      Lightning Detector, Programmable Attenuator, LoRa Mesh+GPS)
+      Lightning Detector, Programmable Attenuator, LoRa Mesh+GPS,
+      RFID UHF, Radar 24G, Zigbee Coord, UWB Anchor, GPS RTK,
+      Mag Loop Antenna)
   High-Speed (DDR3/4, PCIe, USB3, MIPI, Machine Vision, MEGA-3,
               MEGA-4 164p, MEGA-5 94p, LVDS Display, Camera ISP,
-              Multi-spectral, Ethernet Switch 5-port)
+              Multi-spectral, Ethernet Switch 5-port, MEGA-6 AM62x 66p,
+              FPGA SoM ECP5 43p, MEGA-7 iMX8MP 97p 4xBGA)
   Industrial (PLC, CAN, RS-485, DALI, Smart Meter, Protocol Translator,
               EtherCAT, DMX-512, ARINC-429, BiSS-C Encoder, Stepper CL,
               Servo Robotics, HVAC 6-zone, Solenoid 8ch, PWM Fan 6ch,
-              Modbus WiFi, Solar Tracker)
+              Modbus WiFi, Solar Tracker, Relay 16ch, Stepper 2-Axis,
+              Vibration Monitor, 4-20mA Tx, Eth I/O, PID Heater,
+              Temp Logger 16ch, Iso RS485, Eth Relay)
   Wearable (Smartwatch, Pulse Oximeter, IMU, Flex Band, PPG Heart Rate,
-            Touch Array, PIR+BLE, ToF+BLE, Env Sensor Mesh, Dosimeter)
-  Automotive (LIN, CAN-FD, Gateway, Robot Joint, OBD2+BLE)
+            Touch Array, PIR+BLE, ToF+BLE, Env Sensor Mesh, Dosimeter,
+            Haptic Driver)
+  Automotive (LIN, CAN-FD, Gateway, Robot Joint, OBD2+BLE,
+              CAN-FD 4ch, V2X Unit)
+  Scientific (Geiger Counter, Gas Sensor, LiDAR ToF, Motor Encoder,
+              Li-Ion Coulomb, DSP Audio)
 
 Every rule below was EARNED through a specific practice failure,
 not assumed from textbooks. This is living wisdom, not dead knowledge.
@@ -79,12 +94,12 @@ LAYER_RULES = {
 @dataclass
 class DrcScalingLaw:
     """DRC error count scales with these factors."""
-    # From 250 boards: errors correlate with component density, not area
+    # From 350 boards: errors correlate with component density, not area
     # E ≈ k * parts * density_factor * category_factor
 
     # Density factor: errors per mm² of occupied area
-    # Measured from P1-P250:
-    density_k: float = 135.0  # refined from 140.0 with 250-board dataset
+    # Measured from P1-P350:
+    density_k: float = 130.0  # refined from 135.0 with 350-board dataset
 
     # Category multipliers (from practice observations)
     category_factors: dict = None
@@ -92,15 +107,16 @@ class DrcScalingLaw:
     def __post_init__(self):
         if self.category_factors is None:
             self.category_factors = {
-                "power": 2.5,       # P64,P107,P147,P190,P228: wide trace conflicts
-                "rf": 1.8,          # P93,P132,P146,P208,P249: tight spacing
-                "high_speed": 1.6,  # P91,P121,P150,P200,P250: BGA+DDR (raised from 1.5)
-                "mixed_signal": 1.3,  # P81,P128,P142,P216,P227: analog+digital mix
-                "digital": 1.0,     # P80 FPGA: baseline
-                "industrial": 0.8,  # P94,P145,P193,P214: relaxed spacing
-                "wearable": 4.0,    # P106,P123,P218,P239: extreme density
-                "automotive": 1.2,  # P108,P122,P229,P241,P243: CAN/LIN moderate
-                "simple": 0.5,      # P79,P143,P221: easy boards
+                "power": 2.5,       # P64..P341: wide trace conflicts
+                "rf": 1.8,          # P93..P332: tight spacing
+                "high_speed": 1.7,  # P91..P350: BGA+DDR (raised: MEGA-7 shows higher complexity)
+                "mixed_signal": 1.3,  # P81..P347: analog+digital mix
+                "digital": 1.0,     # P80..P348: baseline
+                "industrial": 0.8,  # P94..P337: relaxed spacing
+                "wearable": 4.0,    # P106..P305: extreme density
+                "automotive": 1.2,  # P108..P346: CAN/LIN moderate
+                "simple": 0.5,      # P79..P317: easy boards
+                "scientific": 1.4,  # P308..P321: precision analog (new from 350 dataset)
             }
 
     def estimate_errors(self, parts: int, board_area_mm2: float,
@@ -249,7 +265,7 @@ def recommend_layers(parts: int, nets: int, category: str = "digital") -> int:
         return 6
     if parts > 40 or nets > 80:
         return 4
-    if category in ("rf", "mixed_signal", "wearable"):
+    if category in ("rf", "mixed_signal", "wearable", "scientific"):
         return 4
     return 2
 
@@ -257,7 +273,7 @@ def recommend_layers(parts: int, nets: int, category: str = "digital") -> int:
 def recommend_board_size(parts: int, layers: int,
                          category: str = "digital") -> tuple[float, float]:
     """Recommend board dimensions based on component count and category."""
-    # Target density ranges from 250 practices:
+    # Target density ranges from 350 practices:
     # Simple 2L: 0.003-0.006 parts/mm²
     # Dense 4L: 0.005-0.010 parts/mm²
     # Extreme: 0.015-0.025 parts/mm² (wearable)
