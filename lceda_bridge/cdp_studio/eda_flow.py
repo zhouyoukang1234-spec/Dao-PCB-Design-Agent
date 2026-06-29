@@ -1421,6 +1421,207 @@ class Flow:
                              file_path, timeout=30)
 
 
+    # ==================== 文档源操作(最深融合层) ====================
+
+    def get_document_source(self, uuid):
+        """获取文档原始源(pipe-delimited 格式)——PCB/原理图/面板均可。
+        返回完整文档字符串,可解析出 COMPONENT/LINE/VIA/POUR/NET/PAD_NET 等所有元素。"""
+        return self.eda.call("sys_FileManager.getDocumentSource", uuid, timeout=30)
+
+    def set_document_source(self, uuid, source):
+        """写回修改后的文档源——直接操作文档数据,绕过所有 API 限制。"""
+        return self.eda.call("sys_FileManager.setDocumentSource", uuid, source, timeout=30)
+
+    def parse_document_source(self, source):
+        """解析 pipe-delimited 文档源为结构化列表。
+        每行格式: {type:...}||{data...}|  → 返回 [{type, ticket, id, data}, ...]"""
+        items = []
+        for line in source.split("\n"):
+            parts = [p.strip() for p in line.split("|") if p.strip()]
+            objs = []
+            for p in parts:
+                if p.startswith("{"):
+                    try:
+                        objs.append(json.loads(p))
+                    except json.JSONDecodeError:
+                        pass
+            if objs:
+                header = objs[0] if objs else {}
+                data = objs[1] if len(objs) > 1 else {}
+                items.append({"type": header.get("type", "UNKNOWN"),
+                              "ticket": header.get("ticket"),
+                              "id": header.get("id"),
+                              "data": data})
+        return items
+
+    def get_project_file(self, project_uuid=None):
+        """获取项目文件(完整项目 JSON)。"""
+        if project_uuid:
+            return self.eda.call("sys_FileManager.getProjectFileByProjectUuid",
+                                 project_uuid, timeout=30)
+        return self.eda.call("sys_FileManager.getProjectFile", timeout=30)
+
+    def import_project(self, file_data):
+        """从文件数据导入项目。"""
+        return self.eda.call("sys_FileManager.importProjectByProjectFile",
+                             file_data, timeout=30)
+
+    # ==================== 总线 / 网络标签(原理图高级元素) ====================
+
+    def create_bus(self, name, x1, y1, x2, y2):
+        """创建总线(如 DATA[0..7])。"""
+        return self.eda.call("sch_PrimitiveBus.create", name, x1, y1, x2, y2, timeout=15)
+
+    def get_all_buses(self):
+        """获取当前原理图页所有总线。"""
+        return self.eda.call("sch_PrimitiveBus.getAll", timeout=15) or []
+
+    def get_netlist(self):
+        """获取原理图网表(需在原理图页面)。"""
+        return self.eda.call("sch_Netlist.getNetlist", timeout=20)
+
+    def set_netlist(self, netlist):
+        """设置原理图网表。"""
+        return self.eda.call("sch_Netlist.setNetlist", netlist, timeout=20)
+
+    # ==================== PCB 自动布线导入/导出 ====================
+
+    def clear_routing(self):
+        """清除 PCB 所有布线(需在 PCB 页面)。"""
+        return self.eda.call("pcb_Document.clearRouting", timeout=20)
+
+    def import_autoroute_ses(self, ses_content):
+        """导入 Freerouting .ses 自动布线结果。"""
+        return self.eda.call("pcb_Document.importAutoRouteSesFile",
+                             ses_content, timeout=30)
+
+    def import_autoroute_json(self, json_content):
+        """导入 JSON 自动布线结果。"""
+        return self.eda.call("pcb_Document.importAutoRouteJsonFile",
+                             json_content, timeout=30)
+
+    def import_autolayout_json(self, json_content):
+        """导入 JSON 自动布局结果。"""
+        return self.eda.call("pcb_Document.importAutoLayoutJsonFile",
+                             json_content, timeout=30)
+
+    def get_dsn_file(self):
+        """导出 DSN 文件(Specctra 格式,用于 Freerouting)。仅客户端模式可用。"""
+        return self.eda.call("pcb_ManufactureData.getDsnFile", timeout=30)
+
+    def get_autoroute_json(self):
+        """导出自动布线 JSON 文件。"""
+        return self.eda.call("pcb_ManufactureData.getAutoRouteJsonFile", timeout=30)
+
+    # ==================== PCB 选择 / 事件 ====================
+
+    def get_selected_primitives(self):
+        """获取当前选中的图元 ID 列表。"""
+        return self.eda.call("pcb_SelectControl.getAllSelectedPrimitives_PrimitiveId",
+                             timeout=10) or []
+
+    def select_primitives(self, ids):
+        """选中指定图元。"""
+        return self.eda.call("pcb_SelectControl.doSelectPrimitives", ids, timeout=10)
+
+    def clear_selection(self):
+        """取消所有选中。"""
+        return self.eda.call("pcb_SelectControl.clearSelected", timeout=10)
+
+    def get_mouse_position(self):
+        """获取当前鼠标在 PCB 中的坐标。"""
+        return self.eda.call("pcb_SelectControl.getCurrentMousePosition", timeout=10)
+
+    # ==================== 原理图自动布局/布线 ====================
+
+    def sch_auto_layout(self, uuids=None, netlist=None):
+        """原理图自动布局。"""
+        return self.eda.call("sch_Document.autoLayout",
+                             {"uuids": uuids, "netlist": netlist}, timeout=30)
+
+    def sch_auto_routing(self, uuids=None, netlist=None):
+        """原理图自动布线。"""
+        return self.eda.call("sch_Document.autoRouting",
+                             {"uuids": uuids, "netlist": netlist}, timeout=30)
+
+    # ==================== 多页原理图 ====================
+
+    def create_schematic_page(self, name):
+        """创建新的原理图页面。"""
+        return self.eda.call("dmt_Schematic.createSchematicPage", name, timeout=20)
+
+    def get_all_schematic_pages(self):
+        """获取当前原理图所有页面信息。"""
+        return self.eda.call("dmt_Schematic.getAllSchematicPagesInfo", timeout=15) or []
+
+    def get_current_page_info(self):
+        """获取当前页面信息。"""
+        return self.eda.call("dmt_Schematic.getCurrentSchematicPageInfo", timeout=15)
+
+    def rename_schematic_page(self, uuid, name):
+        """重命名原理图页面。"""
+        return self.eda.call("dmt_Schematic.modifySchematicPageName",
+                             uuid, name, timeout=15)
+
+    # ==================== 工作区/团队管理 ====================
+
+    def get_workspaces(self):
+        """获取所有工作区。"""
+        return self.eda.call("dmt_Workspace.getAllWorkspacesInfo", timeout=15) or []
+
+    def get_current_workspace(self):
+        """获取当前工作区。"""
+        return self.eda.call("dmt_Workspace.getCurrentWorkspaceInfo", timeout=15)
+
+    def switch_workspace(self, uuid):
+        """切换工作区。"""
+        return self.eda.call("dmt_Workspace.toggleToWorkspace", uuid, timeout=15)
+
+    def get_teams(self):
+        """获取所有团队信息。"""
+        return self.eda.call("dmt_Team.getAllTeamsInfo", timeout=15) or []
+
+    # ==================== PCB 物理层叠 / 制造数据 ====================
+
+    def get_pcb_info(self):
+        """获取 PCB 制造信息(层叠、网络、规则的完整信息)。"""
+        return self.eda.call("pcb_ManufactureData.getPcbInfoFile", timeout=20)
+
+    def zoom_to_board(self):
+        """缩放视图至板框区域。"""
+        return self.eda.call("pcb_Document.zoomToBoardOutline", timeout=10)
+
+    def get_ratline_status(self):
+        """获取飞线计算状态。"""
+        return self.eda.call("pcb_Document.getCalculatingRatlineStatus", timeout=10)
+
+    def start_ratline(self):
+        """开始计算飞线。"""
+        return self.eda.call("pcb_Document.startCalculatingRatline", timeout=10)
+
+    def stop_ratline(self):
+        """停止计算飞线。"""
+        return self.eda.call("pcb_Document.stopCalculatingRatline", timeout=10)
+
+    # ==================== 库分类管理 ====================
+
+    def get_classification_tree(self):
+        """获取完整的元器件分类树。"""
+        return self.eda.call("lib_Classification.getAllClassificationTree", timeout=20) or []
+
+    def get_all_libraries(self):
+        """获取所有库列表(系统/个人/项目/收藏)。"""
+        return self.eda.call("lib_LibrariesList.getAllLibrariesList", timeout=15) or []
+
+    def get_system_library_uuid(self):
+        """获取系统库 UUID。"""
+        return self.eda.call("lib_LibrariesList.getSystemLibraryUuid", timeout=10)
+
+    def get_personal_library_uuid(self):
+        """获取个人库 UUID。"""
+        return self.eda.call("lib_LibrariesList.getPersonalLibraryUuid", timeout=10)
+
+
 if __name__ == "__main__":
     f = Flow()
     print(json.dumps(f.project_info(), ensure_ascii=False)[:200])
