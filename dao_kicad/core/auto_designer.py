@@ -84,12 +84,16 @@ class DesignResult:
     drc_warnings: int = 0
     mfg_files: int = 0
     density: float = 0.0
+    diff_pairs: int = 0
+    diff_pair_max_skew_pct: float = 0.0
 
     def summary(self) -> str:
+        dp = (f", {self.diff_pairs}dp@{self.diff_pair_max_skew_pct:.1f}%skew"
+              if self.diff_pairs else "")
         return (f"{self.name}: {self.parts}p {self.width_mm}x{self.height_mm}mm "
                 f"{self.layers}L, {self.routes_completed}/{self.routes_total} routed, "
                 f"{self.vias}V, {self.drc_errors}E/{self.drc_warnings}W, "
-                f"{self.mfg_files} mfg, d={self.density:.4f}")
+                f"{self.mfg_files} mfg, d={self.density:.4f}{dp}")
 
 
 def auto_design(spec: DesignSpec, output_dir: str | Path) -> DesignResult:
@@ -259,6 +263,13 @@ def auto_design(spec: DesignSpec, output_dir: str | Path) -> DesignResult:
             dp_res = Router(b.board, min_clearance_mm=cl).route_diff_pairs(
                 grp, width_mm=w, gap_mm=g, signal_layers=[pcbnew.F_Cu])
             dp_failed += dp_res.failed
+        # Verify the high-speed constraint actually held: report the worst
+        # intra-pair length skew (coupled front-layer routing yields ~0%).
+        reports = Router(b.board, min_clearance_mm=cl).validate_diff_pairs(
+            diff_pairs)
+        result.diff_pairs = len(reports)
+        result.diff_pair_max_skew_pct = max(
+            (rep.length_skew_pct for rep in reports), default=0.0)
         for d in diff_pairs:
             skip.update((d.p_net, d.n_net))
 
