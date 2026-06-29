@@ -520,14 +520,19 @@ class Flow:
         无需板框、不经 GUI——纯 extapi `pcb_PrimitiveLine.create` 落铜。
 
         - orthogonal=True:L 形(先水平后竖直,中点拐角);False:直连。
-        - escape>0:**避让走线**。器件同步后多在同一行(引脚共 y),直连/ L 形的水平段
+        - escape!=0:**避让走线**。器件同步后多在同一行(引脚共 y),直连/ L 形的水平段
           会横穿中间的他脚而触发 DRC「Pad to Track」间距违规。开 escape 则每段先从两端
-          引脚**竖直逃逸**到一条「空走廊」(y = 全网最低脚 y - escape,在器件行外),再于走廊
-          内水平贯通——绕开所有共行焊盘,得干净 DRC。escape 取该网外的净空高度(如 1000)。
+          引脚**竖直逃逸**到一条「空走廊」(在器件行外),再于走廊内水平贯通——绕开所有共行焊盘。
+          **escape>0 走廊在行下方**(y=最低脚 y−escape),**escape<0 在上方**(y=最高脚 y+|escape|)。
+          同层多网相互交叉会产生 track-to-track 违规,故应让不同网走**异侧/异层**走廊(见 route_all)。
         """
         pts = self.pcb_pins_by_net(net).get(net, [])
         ids = []
-        corr_y = (min(y for _, y in pts) - escape) if (escape and pts) else None
+        if escape and pts:
+            corr_y = (min(y for _, y in pts) - escape) if escape > 0 \
+                else (max(y for _, y in pts) - escape)
+        else:
+            corr_y = None
         for i in range(len(pts) - 1):
             (x0, y0), (x1, y1) = pts[i], pts[i + 1]
             if escape:
@@ -549,14 +554,18 @@ class Flow:
 
     def pcb_route_all(self, layer=1, width=10, orthogonal=True, escape=0):
         """对 PCB 上所有**多脚网**逐一铜布线;返回 {net: 走线段数}。
-        escape>0 启用避让走线(各网走廊按 escape 递增错开,互不重叠)。
-        校验建议:布线后 `pcb_Net.getNetLength(net)` > 0 即该网已落实铜。"""
+        escape!=0 启用避让走线:各网走廊**上下交替分侧**且按 |escape| 递增错开,互不交叉
+        (单层多网得干净 DRC)。校验:布线后 `pcb_Net.getNetLength(net)` > 0 即已落实铜。"""
         by = self.pcb_pins_by_net()
         out = {}
-        k = 1
+        k = 0
         for net, pts in by.items():
             if net and len(pts) >= 2:
-                esc = escape * k if escape else 0
+                if escape:
+                    side = 1 if (k % 2 == 0) else -1       # 偶数网走下方、奇数网走上方
+                    esc = side * escape * (k // 2 + 1)     # 同侧多网逐层外推
+                else:
+                    esc = 0
                 out[net] = len(self.pcb_route_net(net, layer, width, orthogonal, esc))
                 k += 1
         return out
