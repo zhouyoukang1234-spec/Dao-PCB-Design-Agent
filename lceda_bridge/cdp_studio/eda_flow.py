@@ -175,6 +175,105 @@ class Flow:
         time.sleep(settle)
         return ok
 
+    def place_device_det(self, device, x, y, designator=None, sub="",
+                         rotation=0, mirror=False, bom=True, pcb=True, timeout=20):
+        """**确定性放件**(移植自 jlc-canvas-lowlevel 会话 2j,该法实测同器件连放 5/5 精确)。
+
+        经逆出的 `sch_PrimitiveComponent.create` 真实签名按**图纸数据坐标**直接落件,
+        不依赖视口/合成鼠标 → 放点精确、同器件可重复放置,根治 `place_device`
+        (placeComponentWithMouse+合成点击)的像素→数据映射漂移与相同器件去重丢件。
+
+        逆出签名(读 live 构造源):
+          create(device, x, y, subPartName, rotation, mirror, addIntoBom, addIntoPcb)
+          · device = {uuid, libraryUuid, name};worker 内对 y 取负(此处已对齐)。
+          · 返回 fa 对象,需 getState_PrimitiveId() 取真实 primitiveId。
+
+        device 为 `search_device` 的一项。返回 primitiveId(失败抛 FlowError)。
+        designator 给定则顺手改位号。
+        """
+        dev = {"uuid": device["uuid"], "libraryUuid": device["libraryUuid"],
+               "name": device.get("name")}
+        js = (r"(async function(){try{var pc=window._EXTAPI_ROOT_.sch_PrimitiveComponent;"
+              r"var r=await pc.create(%s,%d,%d,%s,%d,%s,%s,%s);"
+              r"return JSON.stringify({id:(r&&r.getState_PrimitiveId)?r.getState_PrimitiveId():null,"
+              r"x:r&&r.getState_X(),y:r&&r.getState_Y(),rot:r&&r.getState_Rotation()});}"
+              r"catch(err){return JSON.stringify({err:String(err)});}})()"
+              % (json.dumps(dev), int(round(x)), int(round(y)), json.dumps(sub), int(rotation),
+                 "true" if mirror else "false", "true" if bom else "false", "true" if pcb else "false"))
+        v, e = d.evaluate(self.ws, js, await_promise=True, timeout=timeout)
+        try:
+            res = json.loads(v) if v else {"evalerr": e}
+        except Exception:
+            res = {"raw": v, "evalerr": e}
+        pid = res.get("id")
+        if not pid:
+            raise FlowError("place_device_det 失败: %s" % (res.get("err") or res))
+        if designator:
+            self.set_part(pid, designator=designator)
+        return pid
+
+    def set_part(self, pid, **attr):
+        """修改器件属性(designator/x/y/rotation/mirror...);best-effort。"""
+        try:
+            return self.eda.call("sch_PrimitiveComponent.modify", pid, attr, timeout=12)
+        except Exception as e:
+            return {"err": str(e)[:120]}
+
+    def _pin_xy_det(self, comp_id, pin):
+        pm = {str(p.get("pinNumber")): p for p in (self.component_pins(comp_id) or [])}
+        p = pm[str(pin)]
+        return int(round(p["x"])), int(round(p["y"]))
+
+    def net_route_det(self, terminals, net, lane_x):
+        """把同网多引脚经一条**该网专属**竖直 lane(x=lane_x)汇接(会话 2k)。
+
+        坑根因:两不同网的竖直段若落在同一 x,会被 EDA 融成一根「多网名」导线
+        (DRC: Wire has multiple net names)。给每网唯一 lane_x → 竖直段永不重叠、
+        网络互不串。terminals: [(comp_id, pinNumber), ...]。
+        """
+        coords = [self._pin_xy_det(c, p) for c, p in terminals]
+        ys = [c[1] for c in coords]
+        self.wire(lane_x, min(ys), lane_x, max(ys), net)   # 竖直主干
+        for x, y in coords:
+            if x != lane_x:
+                self.wire(x, y, lane_x, y, net)            # 各脚水平接入 lane
+        return coords
+
+    def auto_route_det(self, net_map, lane_gap=80):
+        """**多网无串扰确定性布线**(会话 2k + 会话 3 侧向改进):每网一条唯一竖直
+        lane,**按该网引脚所在侧**外推(而非盲目左右交替)。
+
+        会话 2k 的盲交替有一个被实测暴露的坑(本会话复验定位):若某网引脚都在
+        器件右侧、却被分到左 lane,其水平接入段会**横穿整个器件体**并与对侧网的
+        引脚相交 → 两网在该点融合(PCB 上只剩一网)。改进:先求每网引脚均值 x,
+        引脚偏右的走右 lane、偏左的走左 lane,各侧分别向外叠放 → 单侧网零穿越。
+
+        net_map: {网名: [(comp_id, pinNumber), ...]}。返回 {net: lane_x}。
+        说明(task 9 边界):本法保证**单侧网**互不相交;跨侧网或密集拓扑仍可能
+        让水平段穿越他网竖直干,需后续通用正交布线器(按 y 分层/绕行/过孔)。
+        """
+        coords = {net: [self._pin_xy_det(c, p) for c, p in ts]
+                  for net, ts in net_map.items()}
+        all_x = [x for cs in coords.values() for x, _ in cs]
+        lo = min(all_x) if all_x else 0
+        hi = max(all_x) if all_x else 0
+        center = (lo + hi) / 2.0
+        lanes = {}
+        nl = nr = 0
+        for net, cs in coords.items():
+            mean_x = sum(x for x, _ in cs) / len(cs)
+            if mean_x >= center:
+                nr += 1; lane_x = hi + nr * lane_gap        # 引脚偏右 → 右 lane
+            else:
+                nl += 1; lane_x = lo - nl * lane_gap        # 引脚偏左 → 左 lane
+            ys = [y for _, y in cs]
+            self.wire(lane_x, min(ys), lane_x, max(ys), net)  # 竖直主干
+            for x, y in cs:
+                if x != lane_x:
+                    self.wire(x, y, lane_x, y, net)           # 各脚水平接入 lane
+            lanes[net] = lane_x
+        return lanes
+
     def schematic_component_ids(self):
         return self.eda.call("sch_PrimitiveComponent.getAllPrimitiveId", timeout=20)
 
