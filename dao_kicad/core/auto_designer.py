@@ -239,8 +239,15 @@ def auto_design(spec: DesignSpec, output_dir: str | Path) -> DesignResult:
         if d.p_net not in skip and d.n_net not in skip
     ]
     if diff_pairs:
+        # Keep the pair on the front layer (via-free, perfectly coupled,
+        # 0% length skew). The layer-aware drop to the back layer is a tested
+        # opt-in: on these dense fixture boards its transition vias would land
+        # in 0.5mm pad fields and add more DRC than the front-layer crossing
+        # they remove — the same via-in-pad-field limit measured for the
+        # N-layer signal router, so it is not enabled by default here.
         dp_res = Router(b.board, min_clearance_mm=cl).route_diff_pairs(
-            diff_pairs, width_mm=tw, gap_mm=cl)
+            diff_pairs, width_mm=tw, gap_mm=cl,
+            signal_layers=[pcbnew.F_Cu])
         dp_failed = dp_res.failed
         for d in diff_pairs:
             skip.update((d.p_net, d.n_net))
