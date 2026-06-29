@@ -47,3 +47,5 @@ desktop.ini
 
 # transient agent-loop demo output
 _agent_work/
+
+build/
