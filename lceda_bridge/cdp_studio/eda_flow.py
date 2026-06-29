@@ -111,9 +111,19 @@ class Flow:
         return self.poll_boards()
 
     def scaffold(self, name):
-        """建工程 + 取(默认自带的)board / schematic / pcb 句柄。"""
+        """建工程 + 取 board / schematic / pcb 句柄。
+        新建的空工程无默认 board → 显式建 SCH + PCB 再取(实测确立)。"""
         proj = self.create_project(name)
         b = self.poll_boards()
+        if not b:
+            # 空工程:补建原理图 + PCB(build_ne555 路径)
+            try:
+                self.call("dmt_Schematic.createSchematic", "SCH1", timeout=20)
+                self.call("dmt_Pcb.createPcb", "PCB1", timeout=20)
+            except Exception as e:
+                raise FlowError("scaffold: 建 SCH/PCB 失败: %s" % str(e)[:120])
+            time.sleep(3)
+            b = self.poll_boards()
         if not b:
             raise FlowError("scaffold: 工程无 board")
         self.board = b[0]
@@ -159,14 +169,26 @@ class Flow:
         return self.call("sch_PrimitiveComponent.getAllPrimitiveId", "part", timeout=12) or []
 
     def clear_sch_parts(self):
-        """删空当前原理图页的所有器件(用于干净起步,避免跨次运行残留)。"""
+        """删空当前原理图页的所有**器件 + 导线**(用于干净起步,避免跨次运行残留)。
+        注意:残留导线(哪怕来自上次别的网)会与新线在公共顶点融合 → DRC「多网名」,
+        故清器件的同时必须清线。"""
+        n = 0
         ids = self.parts()
         if ids:
             try:
-                self.call("sch_PrimitiveComponent.delete", ids, timeout=20)
+                self.call("sch_PrimitiveComponent.delete", ids, timeout=20); n += len(ids)
             except Exception as e:
                 return {"err": str(e)[:120]}
-        return len(ids)
+        try:
+            wires = self.call("sch_PrimitiveWire.getAllPrimitiveId", timeout=12) or []
+        except Exception:
+            wires = []
+        if wires:
+            try:
+                self.call("sch_PrimitiveWire.delete", wires, timeout=20); n += len(wires)
+            except Exception as e:
+                return {"err": str(e)[:120]}
+        return n
 
     def clear_pcb_comps(self):
         """删空当前 PCB 的所有器件(配合 clear_sch_parts 做干净起步)。"""

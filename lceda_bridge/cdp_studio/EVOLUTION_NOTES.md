@@ -713,6 +713,14 @@ fa(componentType, deviceObj, x, y, subPartName, rotation=0, mirror=false,
 
 ### 配套
 - `eda_flow.clear_sch_parts()` / `clear_pcb_comps()`:经逆出的 `*.delete(ids)` 做干净起步(规避同 board 跨次残留)。
+  关键:`clear_sch_parts` 同时删**器件 + 导线**(`sch_PrimitiveWire.getAllPrimitiveId/delete`)——
+  实测残留导线(如上次别网的线)会与新线在公共顶点融合 → DRC「Wire has multiple net names」,故必须连线一起清。
+- `eda_flow.scaffold`:新建空工程无默认 board → 显式 `dmt_Schematic.createSchematic` + `dmt_Pcb.createPcb` 再取句柄
+  (沿用 `build_ne555.py` 既证路径;仅在 `poll_boards` 为空时触发,不影响既有"复用已开 board"的工作路径)。
+- 运维提示(本会话踩坑):`reset_rpc` 触发整页 reload 后,编辑器"当前工程"上下文易丢失,
+  `dmt_Project.createProject` 在 Start Page 无开启工程时可能 `Runtime.evaluate` 超时;
+  恢复手段 = `cold_start.py`(会话恢复+`heal_service_workers`)或经 GUI 打开一个含 board 的工程重建上下文。
+  规避:非必要不 reload;放件/连线类底层操作走 RPC 即可,无须刷新页面。
 - `probe_create_sig.py`:批量读放件类 API 的 `toString()/length`(签名取证脚手架)。
 - `build_ne555_det.py`:NE555 确定性放件版(放件 4/4 精确;多脚网的无串扰自动布线列为 2k:需小型正交布线器,
   按"每网走廊 + 每脚让位通道"避免共 x/y 重叠,或改用网络标签按名连接)。
