@@ -745,5 +745,14 @@ fa(componentType, deviceObj, x, y, subPartName, rotation=0, mirror=false,
 - 例:`build_multinet_det.py`(`REUSE=1` 复用当前 board / 缺省 scaffold 新工程)。
 
 **边界与下一步(2l)**:左右交替启发式适用于"几何可分"的网;任意拓扑(密集交叉)仍可能出现水平接入段相交。
-**彻底免几何方案 = 网络标签按名连接**:`sch_PrimitiveObject.create(t,i,n,r,s,a,o,l) → new zl(...)` 可建
-内嵌对象图元(含 net label),按名归网、零走线零交叉。`zl` 构造参数(首参疑为图元类型串)的完整逆向列为 2l。
+
+**2l 逆向结论(已查证)**:EXTAPI **无独立 net-label 命名空间**(穷举 `sch_*` 仅有
+Wire/Bus/Pin/Text/Object/Arc/Circle/Polygon/Rectangle/Attribute,无 NetLabel/NetFlag/NetPort)。
+逐一读 `create` 源印证:
+- `sch_PrimitiveObject.create(t,i,n,r,s,a,o,l) → new zl(...)`:错误串自证为**二进制内嵌对象**(嵌入图/二进制),**非** net label。
+- `sch_PrimitiveText.create` 直发 `api/createText {x,y,content,rotation,textColor,fontName,fontSize,bold,italic,underLine,alignMode}`(纯文本,不归网)。
+- `sch_PrimitiveWire.create(t,i,n,r,s) → new ga(...)`:**导线本身携带 net 名**(`wire(points, netName)`),即本 API 的"按名归网"载体。
+
+**故本 EXTAPI 的"连接"= 给导线赋网名**;并无"零导线纯标签"图元可调。2k 的"每网唯一 lane + 命名导线"
+即是此 API 下的按名连接实现;真正待推进的不是另寻 label,而是**把 lane 布线器升级为可处理任意拓扑的小型正交布线器**
+(避免水平接入段跨越他网竖直干:按 y 错位/分层走线,或引入过孔式跳接),列为后续。
