@@ -724,3 +724,26 @@ fa(componentType, deviceObj, x, y, subPartName, rotation=0, mirror=false,
 - `probe_create_sig.py`:批量读放件类 API 的 `toString()/length`(签名取证脚手架)。
 - `build_ne555_det.py`:NE555 确定性放件版(放件 4/4 精确;多脚网的无串扰自动布线列为 2k:需小型正交布线器,
   按"每网走廊 + 每脚让位通道"避免共 x/y 重叠,或改用网络标签按名连接)。
+
+---
+
+## 会话 2k —— 多网/多脚 无串扰自动布线(已活体闭环·可复现)
+
+**目标**:把 2j 的两脚网推进到**任意多脚网**(≥3 脚)且多网同板互不串扰。
+
+**接口**:`eda_flow.auto_route(net_map, lane_gap=80)`,`net_map = {网名: [(pid,pinNumber), ...]}`。
+为每网分配一条**唯一竖直 lane**经 `net_route` 汇接全部引脚;lane 以全体引脚 x 跨度为界**左右交替**外推
+(偶数网走左 `lo-k·gap`、奇数网走右 `hi+k·gap`)→ 竖直主干永不重叠、左右分流减少水平接入段跨越他网 lane。
+
+**根因修复(2k 实测踩坑)**:`clear_sch_parts` 单遍清线**清不净**——`net_route` 的"主干+接入段"会被 EDA
+合并成更少的 wire 图元,首遍 `getAllPrimitiveId` 漏报,残留导线在下一次 build 与新网在公共顶点融合
+→ 整盘并成一网(实测 NET_A 吞 NET_B 得 5 pad)。**改为循环删到器件/导线双零**(≤8 遍),问题根治。
+
+**活体实证(复用已开 board,连续两跑均稳)**:
+3 电阻 → `auto_route({NET_A:[R1.2,R2.2,R3.2], NET_B:[R1.1,R2.1]})` → importChanges/Apply →
+**PCB 网表 `pcb_Net.getAllPrimitivesByNet`:NET_A=3 pad(三脚网真连)/ NET_B=2 pad,两网无融合** → `RESULT PASS`,幂等可复现。
+- 例:`build_multinet_det.py`(`REUSE=1` 复用当前 board / 缺省 scaffold 新工程)。
+
+**边界与下一步(2l)**:左右交替启发式适用于"几何可分"的网;任意拓扑(密集交叉)仍可能出现水平接入段相交。
+**彻底免几何方案 = 网络标签按名连接**:`sch_PrimitiveObject.create(t,i,n,r,s,a,o,l) → new zl(...)` 可建
+内嵌对象图元(含 net label),按名归网、零走线零交叉。`zl` 构造参数(首参疑为图元类型串)的完整逆向列为 2l。

@@ -173,21 +173,26 @@ class Flow:
         注意:残留导线(哪怕来自上次别的网)会与新线在公共顶点融合 → DRC「多网名」,
         故清器件的同时必须清线。"""
         n = 0
-        ids = self.parts()
-        if ids:
+        # 循环删到真空:删器件/导线后,被合并的连线段会重新暴露,单遍清不净 → 复查直到 0。
+        for _ in range(8):
+            ids = self.parts()
             try:
-                self.call("sch_PrimitiveComponent.delete", ids, timeout=20); n += len(ids)
-            except Exception as e:
-                return {"err": str(e)[:120]}
-        try:
-            wires = self.call("sch_PrimitiveWire.getAllPrimitiveId", timeout=12) or []
-        except Exception:
-            wires = []
-        if wires:
-            try:
-                self.call("sch_PrimitiveWire.delete", wires, timeout=20); n += len(wires)
-            except Exception as e:
-                return {"err": str(e)[:120]}
+                wires = self.call("sch_PrimitiveWire.getAllPrimitiveId", timeout=12) or []
+            except Exception:
+                wires = []
+            if not ids and not wires:
+                break
+            if ids:
+                try:
+                    self.call("sch_PrimitiveComponent.delete", ids, timeout=20); n += len(ids)
+                except Exception as e:
+                    return {"err": str(e)[:120]}
+            if wires:
+                try:
+                    self.call("sch_PrimitiveWire.delete", wires, timeout=20); n += len(wires)
+                except Exception as e:
+                    return {"err": str(e)[:120]}
+            time.sleep(0.5)
         return n
 
     def clear_pcb_comps(self):
@@ -344,6 +349,31 @@ class Flow:
             if x != lane_x:
                 self.wire([x, y, lane_x, y], net)             # 各脚水平接入 lane
         return coords
+
+    def auto_route(self, net_map, lane_gap=80):
+        """**多网无串扰自动布线**(会话 2k):为每个网分配一条唯一竖直 lane,
+        经 `net_route` 汇接其全部引脚(支持 ≥3 脚多脚网)。
+
+        net_map: {net_name: [(pid, pinNumber), ...]}。
+        lane 选址:以全体引脚 x 跨度为界,**左右交替**外推(偶数网走左、奇数网走右),
+        每网 lane_x 互异且落在所有引脚之外 → 竖直主干永不重叠;左右分流减少水平接入段
+        跨越他网 lane 的相交(实测 NET_A 3 脚 / NET_B 2 脚同板无融合,PCB 网表 3/2 pad)。
+        注:本启发式适用于"几何可分"的网;任意拓扑的彻底免几何方案见 2l(网络标签按名连接)。
+        返回 {net: lane_x}。
+        """
+        all_x = [self._pin_xy(pid, pin)[0] for ts in net_map.values() for pid, pin in ts]
+        lo = (min(all_x) if all_x else 0)
+        hi = (max(all_x) if all_x else 0)
+        lanes = {}
+        nl = nr = 0
+        for i, (net, terminals) in enumerate(net_map.items()):
+            if i % 2 == 0:                       # 偶数网走左
+                nl += 1; lane_x = lo - nl * lane_gap
+            else:                                 # 奇数网走右
+                nr += 1; lane_x = hi + nr * lane_gap
+            self.net_route(terminals, net, lane_x)
+            lanes[net] = lane_x
+        return lanes
 
     def connect(self, pid_a, pin_a, pid_b, pin_b, net=""):
         """按引脚号连两器件(正交折线:先水平到目标 x,再竖直到目标 y)。
