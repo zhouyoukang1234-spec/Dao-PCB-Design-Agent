@@ -169,6 +169,19 @@ def main() -> int:
         ipc = IPCChannel()
         check("IPC instantiate", True)
         check("IPC library", isinstance(ipc.library_ok, bool))
+        if ipc.available:
+            st = ipc.status()
+            check("IPC server_up (live)", st.server_up, st.version)
+            # 回归: open_documents 必须带 DocumentType, 修复前恒空表
+            docs = ipc.open_documents()
+            check("IPC open_documents typed (live)", isinstance(docs, list),
+                  f"{len(docs)} doc(s)")
+            refs = ipc.pcb_footprint_refs()
+            check("IPC footprint_refs (live)", isinstance(refs, list),
+                  f"{len(refs)} fp")
+        else:
+            check("IPC live ops skipped (no running KiCad)", True,
+                  "graceful degrade")
     except Exception as e:
         check("IPC", False, str(e))
 
