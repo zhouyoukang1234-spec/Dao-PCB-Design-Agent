@@ -154,6 +154,45 @@ class BoardBuilder:
         lib, fp_name = results[0]
         return self.place(lib, fp_name, reference, x_mm, y_mm, **kwargs)
 
+    def place_smart(self, library: str, footprint: str, reference: str,
+                    x_mm: float, y_mm: float, community_dir: str = "",
+                    **kwargs) -> "BoardBuilder":
+        """Place with intelligent fallback: try exact → search standard → community.
+
+        This is how a LIVING system handles missing parts: adapt, don't fail.
+        """
+        # Try 1: Exact library/footprint
+        try:
+            return self.place(library, footprint, reference, x_mm, y_mm, **kwargs)
+        except Exception:
+            pass
+
+        # Try 2: Search standard libraries
+        results = self.libs.search_footprint(footprint)
+        if results:
+            lib, fp_name = results[0]
+            return self.place(lib, fp_name, reference, x_mm, y_mm, **kwargs)
+
+        # Try 3: Community directory (downloaded via LibraryManager)
+        if community_dir:
+            from pathlib import Path
+            for pretty_dir in Path(community_dir).glob("*.pretty"):
+                fp = pcbnew.FootprintLoad(str(pretty_dir), footprint)
+                if fp:
+                    fp.SetReference(reference)
+                    if kwargs.get("value"):
+                        fp.SetValue(kwargs["value"])
+                    fp.SetPosition(pcbnew.VECTOR2I(
+                        pcbnew.FromMM(x_mm), pcbnew.FromMM(y_mm)))
+                    if kwargs.get("rotation"):
+                        fp.SetOrientationDegrees(kwargs["rotation"])
+                    self.board.Add(fp)
+                    return self
+
+        raise ValueError(
+            f"Footprint '{library}/{footprint}' not found in standard or community libraries"
+        )
+
     # ─── Net Assignment ─────────────────────────────────────────────────────
 
     def assign_net(self, reference: str, pad_number: str, net_name: str) -> "BoardBuilder":
