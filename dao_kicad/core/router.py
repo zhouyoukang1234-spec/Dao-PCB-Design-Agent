@@ -219,6 +219,7 @@ class Router:
                   width_mm: float = 0.25,
                   power_width_mm: float = 0.5,
                   power_nets: Optional[set[str]] = None,
+                  net_widths: Optional[dict[str, float]] = None,
                   layer: int = pcbnew.F_Cu) -> RouteResult:
         """Route all unconnected pairs.
 
@@ -227,10 +228,13 @@ class Router:
             width_mm: default trace width
             power_width_mm: width for power/ground nets
             power_nets: set of net names that are power (wider traces)
+            net_widths: per-net width overrides (takes precedence)
             layer: copper layer to route on
         """
         if power_nets is None:
             power_nets = {"GND", "VCC", "3V3", "5V", "VBUS", "3.3V", "5.0V"}
+        if net_widths is None:
+            net_widths = {}
 
         pairs = self.get_unrouted()
         result = RouteResult(total=len(pairs))
@@ -238,7 +242,13 @@ class Router:
         route_fn = self.route_manhattan if strategy == "manhattan" else self.route_direct
 
         for pair in pairs:
-            w = power_width_mm if pair.net_name in power_nets else width_mm
+            # Per-net width override → power width → default
+            if pair.net_name in net_widths:
+                w = net_widths[pair.net_name]
+            elif pair.net_name in power_nets:
+                w = power_width_mm
+            else:
+                w = width_mm
             try:
                 ok = route_fn(pair, width_mm=w, layer=layer)
                 if ok:

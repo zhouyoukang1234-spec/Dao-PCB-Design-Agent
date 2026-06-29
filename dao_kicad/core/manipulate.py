@@ -254,6 +254,75 @@ class BoardBuilder:
         self.board.Add(via)
         return self
 
+    def add_thermal_vias(self, ref: str, grid_mm: float = 1.0,
+                         via_size_mm: float = 0.4, via_drill_mm: float = 0.2,
+                         net_name: str = "GND") -> "BoardBuilder":
+        """Add thermal via array under a component's exposed pad.
+
+        WISDOM from Practice 14: Power ICs need thermal vias under
+        their exposed pads for heat dissipation to inner/back copper.
+        """
+        fp = self._find_footprint(ref)
+        if not fp:
+            return self
+
+        # Find the largest pad (exposed/thermal pad)
+        largest_pad = None
+        largest_area = 0
+        for pad in fp.Pads():
+            size = pad.GetSize()
+            area = size.x * size.y
+            if area > largest_area:
+                largest_area = area
+                largest_pad = pad
+
+        if not largest_pad:
+            return self
+
+        pos = largest_pad.GetPosition()
+        size = largest_pad.GetSize()
+        cx, cy = pcbnew.ToMM(pos.x), pcbnew.ToMM(pos.y)
+        hw = pcbnew.ToMM(size.x) / 2 - 0.2  # inset from pad edge
+        hh = pcbnew.ToMM(size.y) / 2 - 0.2
+
+        # Grid of vias
+        x = cx - hw
+        while x <= cx + hw:
+            y = cy - hh
+            while y <= cy + hh:
+                self.add_via(x, y, via_size_mm, via_drill_mm, net_name)
+                y += grid_mm
+            x += grid_mm
+
+        return self
+
+    def add_via_fence(self, points_mm: list[tuple[float, float]],
+                      spacing_mm: float = 1.0,
+                      via_size_mm: float = 0.4, via_drill_mm: float = 0.2,
+                      net_name: str = "GND") -> "BoardBuilder":
+        """Add via fence along a boundary for EMI shielding.
+
+        WISDOM from Practice 13: RF designs need via fences around
+        sensitive sections to contain electromagnetic fields.
+        """
+        import math
+        for i in range(len(points_mm)):
+            x1, y1 = points_mm[i]
+            x2, y2 = points_mm[(i + 1) % len(points_mm)]
+            dx, dy = x2 - x1, y2 - y1
+            length = math.hypot(dx, dy)
+            if length < spacing_mm:
+                continue
+
+            n_vias = int(length / spacing_mm)
+            for j in range(n_vias + 1):
+                t = j / max(n_vias, 1)
+                vx = x1 + dx * t
+                vy = y1 + dy * t
+                self.add_via(vx, vy, via_size_mm, via_drill_mm, net_name)
+
+        return self
+
     # ─── Copper Zones ───────────────────────────────────────────────────────
 
     def add_zone(self, points_mm: list[tuple[float, float]],

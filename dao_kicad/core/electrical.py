@@ -16,6 +16,7 @@ NOT a template. Each rule is a PRINCIPLE that applies universally.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 import pcbnew
@@ -99,7 +100,15 @@ class ElectricalValidator:
                 "y": pcbnew.ToMM(pos.y),
                 "pads": fp.GetPadCount(),
                 "nets": set(),
+                "pkg_diag": 0.0,
             }
+
+            # Compute package diagonal from bounding box
+            bbox = fp.GetBoundingBox(False, False)
+            info["pkg_diag"] = math.hypot(
+                pcbnew.ToMM(bbox.GetWidth()),
+                pcbnew.ToMM(bbox.GetHeight()),
+            )
 
             # Collect nets
             for pad in fp.Pads():
@@ -153,8 +162,9 @@ class ElectricalValidator:
             if not power_nets:
                 continue
 
-            # Find nearby capacitors (within 5mm)
-            nearby_caps = self._find_nearby(ref, "C", max_dist_mm=5.0)
+            # Scale search radius by package size (large MCUs need wider search)
+            pkg_radius = max(5.0, comp.get("pkg_diag", 5.0) / 2 + 3.0)
+            nearby_caps = self._find_nearby(ref, "C", max_dist_mm=pkg_radius)
             decoupling_caps = [c for c in nearby_caps
                               if self.components[c]["value"] in self.DECOUPLING_VALUES]
             bulk_caps = [c for c in nearby_caps
@@ -193,7 +203,7 @@ class ElectricalValidator:
                 issues.append(ElectricalIssue(
                     severity="warning",
                     category="decoupling",
-                    description=f"{ref} ({comp['value']}): no decoupling cap within 5mm",
+                    description=f"{ref} ({comp['value']}): no decoupling cap within {pkg_radius:.0f}mm",
                     affected_refs=[ref],
                     suggestion="Add 100nF cap near power pins",
                 ))
