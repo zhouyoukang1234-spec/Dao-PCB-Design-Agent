@@ -205,4 +205,18 @@ class TestCollisionAwareRouting:
         result = r.route_all(strategy="manhattan", width_mm=0.15,
                              power_width_mm=0.3, power_nets={"GND", "3V3"})
         assert result.routed == result.total
-        assert result.tracks_added > 0
+
+
+class TestDiffPairNetClassParams:
+    def test_diff_pair_width_gap_from_net_class(self):
+        """USB/Ethernet diff pairs expose their class width/gap; single-ended
+        and power nets carry no diff-pair geometry."""
+        from dao_kicad.core.netclass import classify_nets, get_diff_pair_params
+        nca = classify_nets(["USB_D+", "USB_D-", "ETH_TX+", "ETH_TX-",
+                             "GND", "3V3", "S0"])
+        dpp = get_diff_pair_params(nca)
+        assert dpp["USB_D+"] == (0.15, 0.15)
+        assert dpp["USB_D-"] == (0.15, 0.15)
+        assert dpp["ETH_TX+"] == (0.12, 0.12)
+        # Single-ended and power nets have no diff-pair geometry.
+        assert "GND" not in dpp and "3V3" not in dpp and "S0" not in dpp

@@ -189,3 +189,24 @@ def get_router_params(assignment: NetClassAssignment) -> tuple[dict[str, float],
             power_nets.add(net)
 
     return net_widths, power_nets
+
+
+def get_diff_pair_params(
+    assignment: NetClassAssignment,
+) -> dict[str, tuple[float, float]]:
+    """Per-net differential-pair ``(width_mm, gap_mm)`` from its net class.
+
+    Returns an entry only for nets whose class carries a non-zero diff-pair
+    geometry (the ``Diff_*`` presets). Detection of *which* nets form a pair
+    stays with :meth:`Router.find_diff_pairs` (it alone has the pair context);
+    this just supplies the impedance-derived width/gap once a pair is known, so
+    USB/DDR/Ethernet pairs route at their class spacing instead of a generic
+    fallback. Previously ``diff_pair_width_mm``/``diff_pair_gap_mm`` were
+    defined on every class but read by nothing.
+    """
+    out: dict[str, tuple[float, float]] = {}
+    for net, cls_name in assignment.assignments.items():
+        cls = assignment.classes.get(cls_name)
+        if cls and cls.diff_pair_width_mm > 0 and cls.diff_pair_gap_mm > 0:
+            out[net] = (cls.diff_pair_width_mm, cls.diff_pair_gap_mm)
+    return out
