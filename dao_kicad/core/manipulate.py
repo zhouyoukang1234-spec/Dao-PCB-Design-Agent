@@ -356,8 +356,15 @@ class BoardBuilder:
 
     def add_zone(self, points_mm: list[tuple[float, float]],
                  net_name: str = "GND", layer: int = None,
-                 clearance_mm: float = 0.3) -> "BoardBuilder":
-        """Add a copper pour zone."""
+                 clearance_mm: float = 0.3,
+                 solid_connection: bool = False) -> "BoardBuilder":
+        """Add a copper pour zone.
+
+        solid_connection=True makes pads join the pour with full copper
+        instead of thermal-relief spokes. For a ground/power plane this is
+        the right default: thin spokes on dense parts trip starved_thermal
+        DRC and add needless return-path inductance.
+        """
         if layer is None:
             layer = pcbnew.F_Cu
 
@@ -369,6 +376,8 @@ class BoardBuilder:
             zone.SetNet(net)
 
         zone.SetLocalClearance(pcbnew.FromMM(clearance_mm))
+        if solid_connection:
+            zone.SetPadConnection(pcbnew.ZONE_CONNECTION_FULL)
 
         # Create zone outline
         outline = zone.Outline()

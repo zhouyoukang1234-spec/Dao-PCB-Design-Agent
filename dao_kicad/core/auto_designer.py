@@ -200,7 +200,7 @@ def auto_design(spec: DesignSpec, output_dir: str | Path) -> DesignResult:
     except Exception:
         cu_layers = [pcbnew.F_Cu, pcbnew.B_Cu]
     for ly in cu_layers:
-        b.add_zone(corners, net_name='GND', layer=ly)
+        b.add_zone(corners, net_name='GND', layer=ly, solid_connection=True)
 
     # Step 8: Save, then reload and fill. ZONE_FILLER segfaults on a
     # freshly-built in-memory board, so we round-trip through disk first;

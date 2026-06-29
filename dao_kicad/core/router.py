@@ -183,7 +183,8 @@ class Router:
         self.board.BuildConnectivity()
         self.conn = self.board.GetConnectivity()
 
-    def _seed_pads(self, clearance_mm: Optional[float] = None):
+    def _seed_pads(self, clearance_mm: Optional[float] = None,
+                   plane_nets: Optional[set[str]] = None):
         """Mark every pad's footprint into the spatial index under its net.
 
         WISDOM (shorting_items = #1 DRC error class): the router previously only
@@ -191,10 +192,18 @@ class Router:
         over other components' pads — each crossing a short. Seeding pads makes
         ``check_clear`` reject any path that would cross a different net's pad.
         Same-net pads (including the route's own endpoints) stay routable.
+
+        plane_nets: nets delivered by a poured plane (e.g. GND). Their pads sit
+        *inside* their own copper pour, so a foreign track only needs the normal
+        track-to-pad clearance to clear them — not the wider foreign-pad margin.
+        Using the wide margin here walls off a dense board: on a 2-layer design
+        whose back is a GND plane, every signal lives on the front amid dozens
+        of GND pads, and the inflated keep-out leaves no routable corridor.
         """
         if not self._spatial:
             return
         cl = self.pad_clearance_mm if clearance_mm is None else clearance_mm
+        plane_nets = plane_nets or set()
         nc_idx = 0
         for fp in self.board.GetFootprints():
             for pad in fp.Pads():
@@ -204,9 +213,10 @@ class Router:
                     # Unconnected pad: unique sentinel so every net is blocked.
                     nn = f"__NC_{nc_idx}"
                     nc_idx += 1
+                pad_cl = self.clearance_mm if nn in plane_nets else cl
                 pos = pad.GetPosition()
                 sz = pad.GetSize()
-                half = max(pcbnew.ToMM(sz.x), pcbnew.ToMM(sz.y)) / 2 + cl
+                half = max(pcbnew.ToMM(sz.x), pcbnew.ToMM(sz.y)) / 2 + pad_cl
                 # Through-hole pads short on every copper layer; an SMD pad
                 # only blocks the single layer it lives on.
                 attr = pad.GetAttribute()
@@ -323,6 +333,26 @@ class Router:
             return [(pair.x_a, pair.y_a), (pair.x_b, pair.y_a), (pair.x_b, pair.y_b)]
         return [(pair.x_a, pair.y_a), (pair.x_a, pair.y_b), (pair.x_b, pair.y_b)]
 
+    def _gen_approach_paths(self, pair: RoutePair, d: float = 0.8):
+        """Paths that enter the destination pad from each cardinal side.
+
+        A power stub to a 2-pad passive (cap/resistor) often has to arrive
+        right beside that part's other-net pad (e.g. 3V3 pad sits ~0.5mm from
+        the cap's GND pad). A straight L-approach grazes the neighbour and is
+        flagged as a short. By offering a pre-approach point on all four sides
+        of the target, the collision check rejects the side facing the
+        neighbouring pad and accepts the outer side automatically.
+        """
+        ax, ay, bx, by = pair.x_a, pair.y_a, pair.x_b, pair.y_b
+        paths = []
+        for ox, oy in ((d, 0), (-d, 0), (0, d), (0, -d)):
+            px, py = bx + ox, by + oy
+            # L from source to the pre-approach point, then a short straight
+            # segment into the pad from the chosen side.
+            paths.append([(ax, ay), (px, ay), (px, py), (bx, by)])
+            paths.append([(ax, ay), (ax, py), (px, py), (bx, by)])
+        return paths
+
     def _gen_Z_path(self, pair: RoutePair, horiz_first: bool, offset: float):
         """Generate Z-shaped waypoints with midpoint offset."""
         dx = pair.x_b - pair.x_a
@@ -372,6 +402,9 @@ class Router:
         for off in [1.0, -1.0, 2.0, -2.0, 3.0]:
             candidates.append(self._gen_Z_path(pair, horiz_first, off))
             candidates.append(self._gen_Z_path(pair, not horiz_first, off))
+        # Approach-doglegs: enter the destination pad from each cardinal side
+        # so a stub to a passive's power pad doesn't graze its GND sibling.
+        candidates.extend(self._gen_approach_paths(pair))
 
         chosen = candidates[0]  # default
         for path in candidates:
@@ -488,7 +521,7 @@ class Router:
                 pcbnew.ToMM(track.GetWidth()), nn, track.GetLayer(),
             )
         # Pad-collision awareness: never route across another net's pad.
-        self._seed_pads()
+        self._seed_pads(plane_nets=skip_nets)
 
         if strategy == "manhattan":
             route_fn = self.route_manhattan
@@ -567,7 +600,7 @@ class Router:
                 pcbnew.ToMM(track.GetWidth()), nn, track.GetLayer(),
             )
         # Pad-collision awareness: never route across another net's pad.
-        self._seed_pads()
+        self._seed_pads(plane_nets=skip_nets)
 
         for pair in pairs:
             if pair.net_name in net_widths:
@@ -593,6 +626,7 @@ class Router:
             ]
             for off in [1.0, -1.0, 2.0, -2.0]:
                 front_paths.append(self._gen_Z_path(pair, horiz_first, off))
+            front_paths.extend(self._gen_approach_paths(pair))
 
             routed = False
             for path in front_paths:
