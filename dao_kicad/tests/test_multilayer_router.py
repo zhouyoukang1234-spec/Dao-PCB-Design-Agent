@@ -158,6 +158,33 @@ class TestDiffPairRouting:
         # Length-matched: the two halves differ by < 5%.
         assert abs(lp - ln) / max(lp, ln) < 0.05
 
+    def test_diff_pair_drops_to_back_layer_when_front_congested(self):
+        """When the front layer is walled off, the coupled pair transitions
+        as a unit to the back layer through symmetric vias (one per half)."""
+        b = _make_board(layers=2, w=50, h=30)
+        b.add_nets("D_P", "D_N", "BLOCK")
+        b.place("Connector_PinHeader_2.54mm", "PinHeader_1x02_P2.54mm_Vertical",
+                "J1", 8, 15, value="A")
+        b.place("Connector_PinHeader_2.54mm", "PinHeader_1x02_P2.54mm_Vertical",
+                "J2", 42, 15, value="B")
+        b.assign_net("J1", "1", "D_P")
+        b.assign_net("J1", "2", "D_N")
+        b.assign_net("J2", "1", "D_P")
+        b.assign_net("J2", "2", "D_N")
+        for x in range(10, 41):
+            b.add_track((x, 4), (x, 26), width_mm=0.3, layer=pcbnew.F_Cu,
+                        net_name="BLOCK")
+
+        r = Router(b.board, min_clearance_mm=0.15)
+        result = r.route_diff_pairs(
+            width_mm=0.2, gap_mm=0.2,
+            signal_layers=[pcbnew.F_Cu, pcbnew.B_Cu], via_penalty=4)
+        assert result.routed == 1
+        assert result.vias_added == 4  # two per half
+        back = [t for t in b.board.GetTracks()
+                if t.GetClass() == "PCB_TRACK" and t.GetLayer() == pcbnew.B_Cu]
+        assert back, "coupled pair should run on the back layer"
+
 
 class TestCollisionAwareRouting:
     def test_collision_avoidance(self):

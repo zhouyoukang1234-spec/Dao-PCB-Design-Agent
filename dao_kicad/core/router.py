@@ -853,7 +853,10 @@ class Router:
         diff_pairs: Optional[list["DiffPair"]] = None,
         width_mm: float = 0.2,
         gap_mm: float = 0.2,
-        layer: int = pcbnew.F_Cu,
+        signal_layers: Optional[list[int]] = None,
+        via_penalty: float = 4,
+        via_size_mm: float = 0.45,
+        via_drill_mm: float = 0.2,
     ) -> RouteResult:
         """Route differential pairs as coupled, length-matched parallel traces.
 
@@ -864,12 +867,22 @@ class Router:
         polyline end back into its own pad. By construction the two traces keep
         a constant ``gap`` and have equal length (mirror images about the
         centreline), which is exactly the differential constraint.
+
+        The coupled pair is layer-aware: the same offset geometry is scored on
+        every routable layer (``signal_layers``, default ``[F_Cu, B_Cu]``) and
+        the pair drops to a cleaner layer *as a unit* — both halves transition
+        together through symmetric vias so they stay coupled and length-matched
+        — only when that removes more collisions than the via pairs add
+        (``via_penalty`` per half). The primary layer is via-free.
         """
         if diff_pairs is None:
             diff_pairs = self.find_diff_pairs()
         result = RouteResult(total=len(diff_pairs))
         if not diff_pairs:
             return result
+        if signal_layers is None:
+            signal_layers = [pcbnew.F_Cu, pcbnew.B_Cu]
+        primary_layer = signal_layers[0]
 
         if self._spatial is None:
             bbox = self.board.GetBoardEdgesBoundingBox()
@@ -877,6 +890,14 @@ class Router:
             bh = pcbnew.ToMM(bbox.GetHeight()) + 10
             self._spatial = _SpatialIndex(bw, bh, cell_mm=0.2,
                                           mark_clearance_mm=self.clearance_mm)
+            for track in self.board.GetTracks():
+                s, e = track.GetStart(), track.GetEnd()
+                n = track.GetNet()
+                self._spatial.mark(
+                    pcbnew.ToMM(s.x), pcbnew.ToMM(s.y),
+                    pcbnew.ToMM(e.x), pcbnew.ToMM(e.y),
+                    pcbnew.ToMM(track.GetWidth()),
+                    n.GetNetname() if n else "", track.GetLayer())
             self._seed_pads()
 
         # Centre-to-centre offset: half the gap plus half a trace on each side.
@@ -911,19 +932,64 @@ class Router:
             if ((pp.x_a - ax) * ux + (pp.y_a - ay) * uy) < 0:
                 side = -1.0
 
-            def _emit(pair, net, sgn):
-                a_off = (ax + ux * off * sgn, ay + uy * off * sgn)
-                b_off = (bx + ux * off * sgn, by + uy * off * sgn)
-                poly = [(pair.x_a, pair.y_a), a_off, b_off,
-                        (pair.x_b, pair.y_b)]
-                for i in range(len(poly) - 1):
-                    self._add_track_seg(poly[i][0], poly[i][1],
-                                        poly[i + 1][0], poly[i + 1][1],
-                                        width_mm, layer, net)
-                return len(poly) - 1
+            def _offsets(sgn):
+                return ((ax + ux * off * sgn, ay + uy * off * sgn),
+                        (bx + ux * off * sgn, by + uy * off * sgn))
 
-            result.tracks_added += _emit(pp, net_p, side)
-            result.tracks_added += _emit(pn, net_n, -side)
+            # The coupled body is the perpendicular-offset segment between the
+            # two endpoint midpoints; score it on every layer for both halves.
+            a_p, b_p = _offsets(side)
+            a_n, b_n = _offsets(-side)
+            best = None  # (cost, layer)
+            for ly in signal_layers:
+                via_cost = 0 if ly == primary_layer else via_penalty
+                c = (self._path_cost([a_p, b_p], width_mm, dp.p_net, ly)
+                     + self._path_cost([a_n, b_n], width_mm, dp.n_net, ly)
+                     + via_cost)
+                if best is None or c < best[0]:
+                    best = (c, ly)
+                if c == 0:
+                    break
+            chosen_layer = best[1]
+
+            def _emit(pair, net, sgn):
+                a_off, b_off = _offsets(sgn)
+                if chosen_layer == primary_layer:
+                    poly = [(pair.x_a, pair.y_a), a_off, b_off,
+                            (pair.x_b, pair.y_b)]
+                    for i in range(len(poly) - 1):
+                        self._add_track_seg(poly[i][0], poly[i][1],
+                                            poly[i + 1][0], poly[i + 1][1],
+                                            width_mm, primary_layer, net)
+                    return len(poly) - 1, 0
+                # Drop to the chosen layer through a symmetric via at each end.
+                va = self._clear_via_spot(*a_off, net.GetNetname(), via_size_mm,
+                                          extra_layer=chosen_layer)
+                vb = self._clear_via_spot(*b_off, net.GetNetname(), via_size_mm,
+                                          extra_layer=chosen_layer)
+                for vx, vy in (va, vb):
+                    via = pcbnew.PCB_VIA(self.board)
+                    via.SetPosition(pcbnew.VECTOR2I(
+                        pcbnew.FromMM(vx), pcbnew.FromMM(vy)))
+                    via.SetWidth(pcbnew.FromMM(via_size_mm))
+                    via.SetDrill(pcbnew.FromMM(via_drill_mm))
+                    via.SetNet(net)
+                    self.board.Add(via)
+                    for mly in (primary_layer, chosen_layer):
+                        self._spatial.mark(vx, vy, vx, vy, via_size_mm,
+                                           net.GetNetname(), mly)
+                self._add_track_seg(pair.x_a, pair.y_a, va[0], va[1],
+                                    width_mm, primary_layer, net)
+                self._add_track_seg(va[0], va[1], vb[0], vb[1],
+                                    width_mm, chosen_layer, net)
+                self._add_track_seg(vb[0], vb[1], pair.x_b, pair.y_b,
+                                    width_mm, primary_layer, net)
+                return 3, 2
+
+            t_p, v_p = _emit(pp, net_p, side)
+            t_n, v_n = _emit(pn, net_n, -side)
+            result.tracks_added += t_p + t_n
+            result.vias_added += v_p + v_n
             result.routed += 1
 
         return result
