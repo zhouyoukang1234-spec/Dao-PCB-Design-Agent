@@ -357,6 +357,59 @@ class BoardBuilder:
         self.board.Add(zone)
         return self
 
+    def add_keepout(self, points_mm: list[tuple[float, float]],
+                    no_tracks: bool = True, no_vias: bool = True,
+                    no_copper_pour: bool = True,
+                    layers: str = "all") -> "BoardBuilder":
+        """Add a keepout zone (routing/copper restriction area).
+
+        WISDOM from Practice 13/18: RF and mixed-signal designs need
+        keepout zones to prevent routing in sensitive areas.
+        """
+        zone = pcbnew.ZONE(self.board)
+        zone.SetIsRuleArea(True)
+        zone.SetDoNotAllowTracks(no_tracks)
+        zone.SetDoNotAllowVias(no_vias)
+        zone.SetDoNotAllowCopperPour(no_copper_pour)
+
+        if layers == "all":
+            lset = pcbnew.LSET.AllCuMask()
+        elif layers == "front":
+            lset = pcbnew.LSET(pcbnew.F_Cu)
+        elif layers == "back":
+            lset = pcbnew.LSET(pcbnew.B_Cu)
+        else:
+            lset = pcbnew.LSET.AllCuMask()
+        zone.SetLayerSet(lset)
+
+        outline = zone.Outline()
+        outline.NewOutline()
+        for x, y in points_mm:
+            outline.Append(pcbnew.FromMM(x), pcbnew.FromMM(y))
+
+        self.board.Add(zone)
+        return self
+
+    def add_text(self, text: str, x_mm: float, y_mm: float,
+                 layer: int = None, size_mm: float = 1.0) -> "BoardBuilder":
+        """Add text annotation to the board."""
+        if layer is None:
+            layer = pcbnew.F_SilkS
+        t = pcbnew.PCB_TEXT(self.board)
+        t.SetText(text)
+        t.SetPosition(pcbnew.VECTOR2I(pcbnew.FromMM(x_mm), pcbnew.FromMM(y_mm)))
+        t.SetLayer(layer)
+        t.SetTextSize(pcbnew.VECTOR2I(pcbnew.FromMM(size_mm), pcbnew.FromMM(size_mm)))
+        self.board.Add(t)
+        return self
+
+    def get_pad_names(self, ref: str) -> list[str]:
+        """Get all pad names for a footprint (essential for BGA)."""
+        fp = self._find_footprint(ref)
+        if not fp:
+            return []
+        return [str(p.GetNumber()) for p in fp.Pads()]
+
     # ─── Export & Manufacturing ─────────────────────────────────────────────
 
     def save(self, path: str | Path) -> Path:
@@ -387,13 +440,16 @@ class BoardBuilder:
             (pcbnew.Edge_Cuts, "Edge_Cuts"),
         ]
 
-        # Add inner layers if present
+        # Add inner layers if present (KiCad 9: IDs spaced by 2)
         ds = self.board.GetDesignSettings()
         n_layers = ds.GetCopperLayerCount()
-        if n_layers > 2:
-            for i in range(1, n_layers - 1):
-                layer_id = pcbnew.In1_Cu + (i - 1)
-                layers.append((layer_id, f"In{i}_Cu"))
+        inner_ids = [
+            pcbnew.In1_Cu, pcbnew.In2_Cu, pcbnew.In3_Cu, pcbnew.In4_Cu,
+            pcbnew.In5_Cu, pcbnew.In6_Cu, pcbnew.In7_Cu, pcbnew.In8_Cu,
+        ]
+        for i in range(1, n_layers - 1):
+            if i - 1 < len(inner_ids):
+                layers.append((inner_ids[i - 1], f"In{i}_Cu"))
 
         generated = []
         for layer_id, name in layers:
