@@ -198,9 +198,12 @@ def auto_design(spec: DesignSpec, output_dir: str | Path) -> DesignResult:
         key=lambda n: -pad_net_counts[n])
     layer_net: dict = {}  # copper layer -> plane net (GND is the default)
     if inner_layers:
-        # GND owns the outer layers and any spare inner layer; each extra
-        # high-fanout rail owns one inner layer (keep >=1 inner for GND).
-        nrails = min(len(rail_cands), max(0, len(inner_layers) - 1))
+        # Signals only ever route on the outer layers (route_multilayer floods
+        # F_Cu then overflows to B_Cu), and GND is always poured as fill on the
+        # outer layers too, so every inner layer is free for a power plane —
+        # promoting all high-fanout rails removes their tracks from the decap
+        # fields. GND keeps its outer pours (stitched via per-pad vias).
+        nrails = min(len(rail_cands), len(inner_layers))
         for i in range(nrails):
             layer_net[inner_layers[i]] = rail_cands[i]
         extra_planes = rail_cands[:nrails]
