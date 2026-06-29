@@ -167,13 +167,49 @@ class Flow:
         library=None 时跨全部库(含嘉立创**系统/社区库**);传 `system`/`personal`/具体 uuid
         可定向。返回器件记录列表(每项可直接喂给 `place_device_det`)。
         """
-        lib = library
+        return self.eda.call("lib_Device.search", key, self._resolve_lib(library),
+                             classification, symbol_type, page_size, page, timeout=timeout)
+
+    def _resolve_lib(self, library):
+        """把 'system'/'personal'/具体 uuid/None 解析成 libraryUuid。"""
         if library == "system":
-            lib = self.eda.call("lib_LibrariesList.getSystemLibraryUuid", timeout=15)
-        elif library == "personal":
-            lib = self.eda.call("lib_LibrariesList.getPersonalLibraryUuid", timeout=15)
-        return self.eda.call("lib_Device.search", key, lib, classification,
-                             symbol_type, page_size, page, timeout=timeout)
+            return self.eda.call("lib_LibrariesList.getSystemLibraryUuid", timeout=15)
+        if library == "personal":
+            return self.eda.call("lib_LibrariesList.getPersonalLibraryUuid", timeout=15)
+        return library
+
+    def footprint_search(self, key, library=None, classification=None,
+                         page_size=20, page=1, timeout=30):
+        """检索**封装库**(`lib_Footprint.search`)。嘉立创共享封装海量(如 "0805" 即百余项)。
+        返回封装记录列表(含 uuid/name/classification/description)。阳路:正向整合社区封装资源。"""
+        return self.eda.call("lib_Footprint.search", key, self._resolve_lib(library),
+                             classification, None, page_size, page, timeout=timeout)
+
+    def symbol_search(self, key, library=None, classification=None,
+                      page_size=20, page=1, timeout=30):
+        """检索**符号库**(`lib_Symbol.search`)。返回符号记录列表。"""
+        return self.eda.call("lib_Symbol.search", key, self._resolve_lib(library),
+                             classification, None, page_size, page, timeout=timeout)
+
+    def model3d_search(self, key, library=None, classification=None,
+                       page_size=20, page=1, timeout=30):
+        """检索 **3D 模型库**(`lib_3DModel.search`)。返回 3D 模型记录列表。"""
+        return self.eda.call("lib_3DModel.search", key, self._resolve_lib(library),
+                             classification, None, page_size, page, timeout=timeout)
+
+    def cbb_search(self, key, library=None, classification=None,
+                   page_size=10, page=1, timeout=30):
+        """检索**可复用电路模块 CBB**(`lib_Cbb.search`,入参对象
+        `{key,libraryUuid,classification,itemsOfPage,page}`)。CBB=嘉立创社区/团队沉淀的
+        成块电路(放大器/电源/接口等),可整块复用。返回 CBB 记录列表。阳路:复用社区成果。"""
+        return self.eda.call("lib_Cbb.search", key, self._resolve_lib(library),
+                             classification, page_size, page, timeout=timeout)
+
+    def classification_tree(self, library=None, library_type=None, timeout=20):
+        """取库的**分类树**(`lib_Classification.getAllClassificationTree`):用于浏览
+        嘉立创共享库的层级目录(根节点 "All" + children)。返回树形列表。"""
+        return self.eda.call("lib_Classification.getAllClassificationTree",
+                             self._resolve_lib(library), library_type, timeout=timeout)
 
     def device_by_lcsc(self, lcsc_ids, timeout=30):
         """按 **LCSC 立创编号**(如 C25804)直取器件记录——元器件的通用唯一标识,
