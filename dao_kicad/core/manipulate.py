@@ -453,11 +453,12 @@ class BoardBuilder:
 
         generated = []
         for layer_id, name in layers:
+            if not self.board.IsLayerEnabled(layer_id):
+                continue
             plot_ctrl.OpenPlotfile(name, pcbnew.PLOT_FORMAT_GERBER, name)
             plot_ctrl.SetLayer(layer_id)
             plot_ctrl.PlotLayer()
             plot_ctrl.ClosePlot()
-            # Find generated file
             for f in output_dir.iterdir():
                 if name in f.name and f not in generated:
                     generated.append(f)

@@ -67,6 +67,8 @@ class ExportEngine:
 
         files = []
         for layer_id, suffix, _desc in layer_plan:
+            if not self.board.IsLayerEnabled(layer_id):
+                continue
             plot_ctrl.OpenPlotfile(suffix, pcbnew.PLOT_FORMAT_GERBER, suffix)
             plot_ctrl.SetLayer(layer_id)
             plot_ctrl.PlotLayer()
