@@ -408,6 +408,47 @@ class Router:
                 return False
         return True
 
+    def _path_cost(self, path: list[tuple[float, float]],
+                   width_mm: float, net_name: str,
+                   layer: int = pcbnew.F_Cu) -> int:
+        """Count foreign-occupied grid cells along ``path`` on ``layer``.
+
+        0 means fully clear. Used to pick the least-colliding candidate when
+        no fully-clear route exists, instead of blindly forcing a path that
+        ploughs through other nets (the old fall-back, the dominant source of
+        clearance/shorting/tracks_crossing on congested multi-IC boards).
+        """
+        if not self._spatial:
+            return 0
+        sp = self._spatial
+        hw = width_mm / 2 + self.clearance_mm
+        grid = sp._grid(layer)
+        cost = 0
+        for i in range(len(path) - 1):
+            for cell in sp._cells_for_segment(
+                    path[i][0], path[i][1], path[i+1][0], path[i+1][1], hw):
+                occ = grid.get(cell)
+                if occ is not None and occ != net_name:
+                    cost += 1
+        return cost
+
+    def _clear_via_spot(self, x: float, y: float, net_name: str,
+                        via_mm: float):
+        """Find a via location near (x, y) clear of foreign copper on both
+        outer layers, trying the centre then small offsets — so layer-transition
+        vias stop landing on a neighbour's pad/hole (the hole_clearance class)."""
+        if not self._spatial:
+            return (x, y)
+        for ox, oy in ((0, 0), (0.3, 0.3), (-0.3, 0.3), (0.3, -0.3),
+                       (-0.3, -0.3), (0.5, 0), (-0.5, 0), (0, 0.5), (0, -0.5)):
+            vx, vy = x + ox, y + oy
+            if (self._spatial.check_clear(vx, vy, vx, vy, via_mm, net_name,
+                                          self.clearance_mm, pcbnew.F_Cu)
+                and self._spatial.check_clear(vx, vy, vx, vy, via_mm, net_name,
+                                              self.clearance_mm, pcbnew.B_Cu)):
+                return (vx, vy)
+        return (x, y)
+
     def route_manhattan(self, pair: RoutePair, width_mm: float = 0.25,
                         layer: int = pcbnew.F_Cu) -> bool:
         """Route with collision-aware L/Z paths.
@@ -661,76 +702,86 @@ class Router:
                 front_paths.append(self._gen_Z_path(pair, horiz_first, off))
             front_paths.extend(self._gen_approach_paths(pair))
 
-            routed = False
+            # Score every front candidate; a fully-clear (cost 0) path wins
+            # immediately, otherwise remember the least-colliding one.
+            best_front, best_front_cost = None, None
             for path in front_paths:
-                if self._path_clear(path, w, pair.net_name, pcbnew.F_Cu):
-                    for i in range(len(path) - 1):
-                        self._add_track_seg(
-                            path[i][0], path[i][1],
-                            path[i+1][0], path[i+1][1],
-                            w, pcbnew.F_Cu, net,
-                        )
-                    routed = True
-                    result.tracks_added += len(path) - 1
+                c = self._path_cost(path, w, pair.net_name, pcbnew.F_Cu)
+                if c == 0:
+                    best_front, best_front_cost = path, 0
                     break
+                if best_front_cost is None or c < best_front_cost:
+                    best_front, best_front_cost = path, c
 
-            if not routed:
-                # Fall back to B_Cu with vias — try multiple B_Cu paths too
-                back_paths = [
-                    self._gen_L_path(pair, horiz_first),
-                    self._gen_L_path(pair, not horiz_first),
-                ]
-                for off in [1.0, -1.0, 2.0, -2.0]:
-                    back_paths.append(self._gen_Z_path(pair, horiz_first, off))
+            # Do the same on B_Cu (reached via two layer-transition vias).
+            back_paths = [
+                self._gen_L_path(pair, horiz_first),
+                self._gen_L_path(pair, not horiz_first),
+            ]
+            for off in [1.0, -1.0, 2.0, -2.0]:
+                back_paths.append(self._gen_Z_path(pair, horiz_first, off))
+            best_back, best_back_cost = None, None
+            for bp in back_paths:
+                c = self._path_cost(bp, w, pair.net_name, pcbnew.B_Cu)
+                if c == 0:
+                    best_back, best_back_cost = bp, 0
+                    break
+                if best_back_cost is None or c < best_back_cost:
+                    best_back, best_back_cost = bp, c
 
-                # Use first clear B_Cu path, or fall back to first one
-                chosen_path = back_paths[0]
-                for bp in back_paths:
-                    if self._path_clear(bp, w, pair.net_name, pcbnew.B_Cu):
-                        chosen_path = bp
-                        break
+            # Prefer the via-less front route. Switching to the back layer
+            # costs two layer-transition vias (each a hole_clearance risk in
+            # dense areas), so only do it when it removes clearly more
+            # collisions than that — never force a path that ploughs through
+            # other nets when a cleaner one exists.
+            via_penalty = 2
+            use_back = best_back_cost is not None and (
+                best_front_cost is None
+                or best_back_cost + via_penalty < best_front_cost)
 
-                # Add via at start (offset slightly to avoid co-located holes)
-                va_x, va_y = pair.x_a + 0.3, pair.y_a + 0.3
-                via_s = pcbnew.PCB_VIA(self.board)
-                via_s.SetPosition(pcbnew.VECTOR2I(
-                    pcbnew.FromMM(va_x), pcbnew.FromMM(va_y)))
-                via_s.SetWidth(pcbnew.FromMM(via_size_mm))
-                via_s.SetDrill(pcbnew.FromMM(via_drill_mm))
-                via_s.SetNet(net)
-                self.board.Add(via_s)
-
-                for i in range(len(chosen_path) - 1):
+            if not use_back:
+                path = best_front
+                for i in range(len(path) - 1):
                     self._add_track_seg(
-                        chosen_path[i][0], chosen_path[i][1],
-                        chosen_path[i+1][0], chosen_path[i+1][1],
+                        path[i][0], path[i][1], path[i+1][0], path[i+1][1],
+                        w, pcbnew.F_Cu, net,
+                    )
+                result.tracks_added += len(path) - 1
+            else:
+                chosen_path = best_back
+                # Place layer-transition vias clear of foreign pads/holes.
+                va_x, va_y = self._clear_via_spot(
+                    pair.x_a, pair.y_a, pair.net_name, via_size_mm)
+                vb_x, vb_y = self._clear_via_spot(
+                    pair.x_b, pair.y_b, pair.net_name, via_size_mm)
+                for vx, vy in ((va_x, va_y), (vb_x, vb_y)):
+                    via = pcbnew.PCB_VIA(self.board)
+                    via.SetPosition(pcbnew.VECTOR2I(
+                        pcbnew.FromMM(vx), pcbnew.FromMM(vy)))
+                    via.SetWidth(pcbnew.FromMM(via_size_mm))
+                    via.SetDrill(pcbnew.FromMM(via_drill_mm))
+                    via.SetNet(net)
+                    self.board.Add(via)
+                    if self._spatial:  # reserve the via on both outer layers
+                        for ly in (pcbnew.F_Cu, pcbnew.B_Cu):
+                            self._spatial.mark(vx, vy, vx, vy, via_size_mm,
+                                               pair.net_name, ly)
+                # B_Cu body runs between the two vias.
+                body = [(va_x, va_y)] + list(chosen_path[1:-1]) + [(vb_x, vb_y)]
+                for i in range(len(body) - 1):
+                    self._add_track_seg(
+                        body[i][0], body[i][1], body[i+1][0], body[i+1][1],
                         w, pcbnew.B_Cu, net,
                     )
-
-                # Add via at end (offset to avoid co-located holes)
-                vb_x, vb_y = pair.x_b - 0.3, pair.y_b - 0.3
-                via_e = pcbnew.PCB_VIA(self.board)
-                via_e.SetPosition(pcbnew.VECTOR2I(
-                    pcbnew.FromMM(vb_x), pcbnew.FromMM(vb_y)))
-                via_e.SetWidth(pcbnew.FromMM(via_size_mm))
-                via_e.SetDrill(pcbnew.FromMM(via_drill_mm))
-                via_e.SetNet(net)
-                self.board.Add(via_e)
-
-                # Short stub tracks to connect pad to via
+                # F_Cu stubs from each pad to its via.
                 self._add_track_seg(pair.x_a, pair.y_a, va_x, va_y,
                                     w, pcbnew.F_Cu, net)
                 self._add_track_seg(vb_x, vb_y, pair.x_b, pair.y_b,
                                     w, pcbnew.F_Cu, net)
-
-                routed = True
-                result.tracks_added += len(chosen_path) - 1 + 2
+                result.tracks_added += len(body) - 1 + 2
                 result.vias_added += 2
 
-            if routed:
-                result.routed += 1
-            else:
-                result.failed += 1
+            result.routed += 1
 
         return result
 
