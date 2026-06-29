@@ -14,7 +14,7 @@ extract→rebuild chain, which is the whole point of working backwards.
 """
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 

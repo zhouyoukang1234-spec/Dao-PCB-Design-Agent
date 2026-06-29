@@ -333,7 +333,6 @@ def test_reroute_eval_grades_against_human(tmp_path, monkeypatch):
     assert live.build_board(spec, pcb)["ok"]
 
     def _fake_autoroute(self, src, out, **kw):       # no freerouting/Java
-        import shutil
         shutil.copy(src, out)
         return {"ok": True, "stage": "import_ses", "tracks": 7, "path": str(out)}
 

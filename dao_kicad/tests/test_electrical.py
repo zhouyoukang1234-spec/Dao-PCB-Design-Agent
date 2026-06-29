@@ -1,6 +1,5 @@
 """Tests for electrical validation — design intelligence beyond DRC."""
 
-import pcbnew
 from dao_kicad.core.manipulate import BoardBuilder
 from dao_kicad.core.electrical import ElectricalValidator, ElectricalReport
 

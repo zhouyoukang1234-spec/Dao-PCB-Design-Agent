@@ -1,6 +1,5 @@
 """Tests for DRC integration — exposed by Practice 1."""
 
-import pcbnew
 import tempfile
 from pathlib import Path
 

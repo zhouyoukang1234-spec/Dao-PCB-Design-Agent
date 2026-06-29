@@ -282,7 +282,6 @@ def _floorplan_centers(refs, w, idx, sizes, gap):
     keeps a net's parts close in *both* axes (not just along a wrapped snake),
     which is what closes board-spanning ratsnest on dense boards. Returns
     ``{ref: (cx, cy)}`` centres with the cluster's top-left at the origin."""
-    import math
 
     pos = _force_layout(refs, w, idx)
     n = len(refs)
