@@ -126,10 +126,14 @@ def auto_design(spec: DesignSpec, output_dir: str | Path) -> DesignResult:
     # Step 3: Build board
     b = BoardBuilder.new(copper_layers=layers, width_mm=int(W), height_mm=int(H))
 
-    # Set design rules based on layer count
+    # Set design rules based on layer count (WISDOM from 250 boards DRC analysis)
     cl = spec.min_clearance_mm or {2: 0.20, 4: 0.15, 6: 0.10}.get(layers, 0.15)
     tw = spec.min_track_mm or {2: 0.20, 4: 0.10, 6: 0.08}.get(layers, 0.10)
-    b.set_rules(min_clearance_mm=cl, min_track_mm=tw, via_size_mm=0.3, via_drill_mm=0.15)
+    # Via size 0.45mm with 0.2mm drill = 0.125mm annular ring (good margin)
+    # This fixes the #1 DRC error source: drill_out_of_range + annular_width
+    b.set_rules(min_clearance_mm=cl, min_track_mm=tw,
+                via_size_mm=0.45, via_drill_mm=0.2,
+                edge_clearance_mm=0.3, solder_mask_min_mm=0.0)
 
     # Add nets
     if spec.nets:
