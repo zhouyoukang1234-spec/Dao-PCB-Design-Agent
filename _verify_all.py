@@ -372,6 +372,55 @@ def main() -> int:
     except Exception as e:
         skip("forward.routing closure", str(e))
 
+    # ── 深层嫁接: KiCad 全功能面逆流 + 常驻 pcbnew 工人 ──────────
+    print("\n── deep: KiCad capability surface + persistent pcbnew worker ──")
+    try:
+        from kicad_origin.origin import introspect
+        from kicad_origin.origin.env import detect_kicad
+        # 能力面逆流: kicad-cli 子命令树 (无需 KiCad python, 仅需 cli)
+        cli_s = introspect.cli_surface(max_depth=3)
+        if cli_s.get("available"):
+            check("introspect.cli surface (leaf commands)",
+                  cli_s.get("leaf_count", 0) >= 20,
+                  f"{cli_s.get('leaf_count')} leaf commands enumerated")
+        else:
+            skip("introspect.cli surface", "kicad-cli not found")
+        # 能力面逆流: pcbnew SWIG 全符号目录 (需 KiCad python)
+        pn = introspect.pcbnew_surface()
+        if pn.get("available"):
+            check("introspect.pcbnew surface (SWIG symbols)",
+                  pn.get("total", 0) >= 500,
+                  f"{pn.get('total')} symbols, {pn.get('classes')} classes")
+        else:
+            skip("introspect.pcbnew surface", pn.get("reason", "no kicad py"))
+        # 常驻 pcbnew 工人: load 一次, 多次查询同一已加载板 (进程内嫁接)
+        from kicad_origin.live.pcbnew_session import (
+            PcbnewSession, pcbnew_session_available)
+        root = detect_kicad().get("root")
+        demo = None
+        if root:
+            cand = (Path(root) / "share" / "kicad" / "demos" /
+                    "complex_hierarchy" / "complex_hierarchy.kicad_pcb")
+            demo = str(cand) if cand.exists() else None
+        if pcbnew_session_available() and demo:
+            with PcbnewSession() as s:
+                s.load(demo)
+                st = s.stats()
+                conn = s.connectivity()
+                bm = s.symbol_methods("BOARD")
+            check("pcbnew_session persistent load+query",
+                  st.get("footprints", 0) > 0
+                  and conn.get("net_groups", 0) > 0
+                  and bm.get("method_count", 0) > 100,
+                  f"fp={st.get('footprints')} net_groups="
+                  f"{conn.get('net_groups')} BOARD.methods="
+                  f"{bm.get('method_count')}")
+        else:
+            skip("pcbnew_session persistent load+query",
+                 "KiCad python or demo not available")
+    except Exception as e:
+        check("deep KiCad fusion", False, str(e))
+
     # ── Top-level package ────────────────────────────────────────
     print("\n── Top-level package ──")
     try:
