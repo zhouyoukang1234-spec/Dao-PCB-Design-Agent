@@ -476,6 +476,31 @@ class Flow:
     def pcb_via(self, net, x, y):
         return self.eda.call("pcb_PrimitiveVia.create", net, x, y, timeout=20)
 
+    # --- 程序化 PCB 摆件(确定性,原理图放件的 PCB 镜像)---
+    def pcb_place_det(self, comp_id, x, y, rotation=None, layer=None, timeout=20):
+        """把 PCB 上一个器件**确定性**移到 (x,y)(可选 rotation/layer)。
+        逆出 `pcb_PrimitiveComponent.modify(id, {layer,x,y,rotation,primitiveLock})`:
+        setState_X/Y/Rotation 直接落位(同步后器件默认在原点附近堆叠,本法据此铺开)。
+        实测移动后引脚坐标随之精确平移。返回 modify 结果。"""
+        attr = {"x": x, "y": y}
+        if rotation is not None:
+            attr["rotation"] = rotation
+        if layer is not None:
+            attr["layer"] = layer
+        return self.eda.call("pcb_PrimitiveComponent.modify", comp_id, attr, timeout=timeout)
+
+    def pcb_layout_row(self, comp_ids=None, x0=0, y0=0, dx=2000, rotation=None):
+        """把若干器件沿一行**等距铺开**(默认 200mil≈2000 内部单位间距),消除同步后
+        器件堆叠在原点导致的焊盘互压。comp_ids=None 时取板上全部器件(按返回序)。
+        返回 {comp_id: (x,y)}。"""
+        ids = comp_ids if comp_ids is not None else (self.pcb_component_ids() or [])
+        placed = {}
+        for i, c in enumerate(ids):
+            x = x0 + i * dx
+            self.pcb_place_det(c, x, y0, rotation=rotation)
+            placed[c] = (x, y0)
+        return placed
+
     # --- 程序化铜布线(net 级,绕过 GUI 自动布线器的板框前置)---
     def pcb_pins_by_net(self, net=None):
         """从 PCB 各器件引脚汇出 {网名: [(x,y)...]}(逆出:网络绑定在**器件引脚**上,
@@ -490,32 +515,50 @@ class Flow:
                 out.setdefault(nm, []).append((p["x"], p["y"]))
         return out
 
-    def pcb_route_net(self, net, layer=1, width=10, orthogonal=True):
-        """把一个网的引脚用**实铜走线**串接(菊花链)。orthogonal=True 走 L 形(曼哈顿,
-        先水平后竖直,中点拐角),否则直连。返回创建的走线 primitiveId 列表。
-        无需板框、不经 GUI——纯 extapi `pcb_PrimitiveLine.create` 落铜。"""
+    def pcb_route_net(self, net, layer=1, width=10, orthogonal=True, escape=0):
+        """把一个网的引脚用**实铜走线**串接(菊花链)。返回创建的走线 primitiveId 列表。
+        无需板框、不经 GUI——纯 extapi `pcb_PrimitiveLine.create` 落铜。
+
+        - orthogonal=True:L 形(先水平后竖直,中点拐角);False:直连。
+        - escape>0:**避让走线**。器件同步后多在同一行(引脚共 y),直连/ L 形的水平段
+          会横穿中间的他脚而触发 DRC「Pad to Track」间距违规。开 escape 则每段先从两端
+          引脚**竖直逃逸**到一条「空走廊」(y = 全网最低脚 y - escape,在器件行外),再于走廊
+          内水平贯通——绕开所有共行焊盘,得干净 DRC。escape 取该网外的净空高度(如 1000)。
+        """
         pts = self.pcb_pins_by_net(net).get(net, [])
         ids = []
+        corr_y = (min(y for _, y in pts) - escape) if (escape and pts) else None
         for i in range(len(pts) - 1):
             (x0, y0), (x1, y1) = pts[i], pts[i + 1]
-            segs = ([(x0, y0, x1, y0), (x1, y0, x1, y1)]
-                    if orthogonal and x0 != x1 and y0 != y1
-                    else [(x0, y0, x1, y1)])
+            if escape:
+                segs = [(x0, y0, x0, corr_y),      # 端 A 竖直逃逸到走廊
+                        (x0, corr_y, x1, corr_y),  # 走廊内水平贯通(器件行外,无焊盘)
+                        (x1, corr_y, x1, y1)]       # 端 B 竖直进脚
+            elif orthogonal and x0 != x1 and y0 != y1:
+                segs = [(x0, y0, x1, y0), (x1, y0, x1, y1)]
+            else:
+                segs = [(x0, y0, x1, y1)]
             for sx, sy, ex, ey in segs:
+                if sx == ex and sy == ey:
+                    continue
                 r = self.eda.call("pcb_PrimitiveLine.create", net, layer,
                                   sx, sy, ex, ey, width, False, timeout=20)
                 pid = r.get("primitiveId") if isinstance(r, dict) else None
                 ids.append(pid)
         return ids
 
-    def pcb_route_all(self, layer=1, width=10, orthogonal=True):
+    def pcb_route_all(self, layer=1, width=10, orthogonal=True, escape=0):
         """对 PCB 上所有**多脚网**逐一铜布线;返回 {net: 走线段数}。
+        escape>0 启用避让走线(各网走廊按 escape 递增错开,互不重叠)。
         校验建议:布线后 `pcb_Net.getNetLength(net)` > 0 即该网已落实铜。"""
         by = self.pcb_pins_by_net()
         out = {}
+        k = 1
         for net, pts in by.items():
             if net and len(pts) >= 2:
-                out[net] = len(self.pcb_route_net(net, layer, width, orthogonal))
+                esc = escape * k if escape else 0
+                out[net] = len(self.pcb_route_net(net, layer, width, orthogonal, esc))
+                k += 1
         return out
 
     # --- 原生自动布线(GUI:Route → Auto Routing → Run) ---
