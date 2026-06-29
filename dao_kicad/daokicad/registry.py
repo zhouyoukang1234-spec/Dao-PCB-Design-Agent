@@ -27,7 +27,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 # The capability domains of the whole PCB flow. Order mirrors the chain so a
