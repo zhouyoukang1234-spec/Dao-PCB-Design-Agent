@@ -617,19 +617,25 @@ class Flow:
                 k += 1
         return out
 
-    def pcb_route_layers(self, width=10, top=1, bottom=2, escape=1000):
+    def pcb_route_layers(self, width=10, top=1, bottom=2, escape=1000, skip_nets=None):
         """**2 层避让布线**(密集/交叉拓扑的归一解):各多脚网**轮流分到顶层/底层**,
         且每网都走**逃逸走廊**(escape,离开焊盘行)。两重正交自由度叠加:
           ① 走廊离开焊盘行 → 不撞**本层**任何焊盘(解决「直线横穿中间脚」的 Pad-to-Track);
           ② 顶/底分层 → **异层网几何交叉不触发 clearance**(解决「两网必相交」)。
         故即便两网在 xy 上高度共线/十字交叉,也零违规。底层网每脚落过孔接顶层焊盘。
         走廊按层分侧(顶层走下方、底层走上方)并按 |escape| 递增错开。
+        skip_nets: 跳过的网名集(如 GND 由覆铜连接,不需走线)。
         返回 {net: {'layer':层, 'segs':段数}}。"""
+        skip = set(skip_nets or [])
         by = self.pcb_pins_by_net()
+        # Sort by pin count ascending: small signal nets first (top), large power nets last (bottom)
+        sorted_nets = sorted(((n, p) for n, p in by.items() if n and len(p) >= 2),
+                             key=lambda x: len(x[1]))
         out = {}
         kt = kb = 0
-        for net, pts in by.items():
-            if not (net and len(pts) >= 2):
+        for net, pts in sorted_nets:
+            if net in skip:
+                out[net] = {"layer": 0, "segs": 0, "skipped": True}
                 continue
             if (kt + kb) % 2 == 0:                 # 偶数网→顶层、走廊朝下
                 lyr, esc = top, escape * (kt + 1)
@@ -919,11 +925,13 @@ class Flow:
 
     # --- 原理图 → PCB 同步(importChanges + 自动确认) ---
     def update_pcb_from_schematic(self, pcb_uuid, timeout=40):
-        self.eda.call("pcb_Document.importChanges", pcb_uuid, timeout=timeout)
+        raw = self.eda.call("pcb_Document.importChanges", pcb_uuid, timeout=timeout)
         time.sleep(2)
         clicked = ui_click_text(self.ws, ["Apply Changes", "应用更改", "应用修改", "应用"])
         time.sleep(3)
-        return {"dialog_confirmed": clicked, "pcb_components": self.pcb_component_ids()}
+        pcb_ids = self.pcb_component_ids()
+        return {"import_raw": raw, "dialog_confirmed": clicked,
+                "pcb_components": pcb_ids}
 
     # --- DRC ---
     def drc_check(self, strict=True, verbose=True, timeout=60):
@@ -1365,8 +1373,8 @@ class Flow:
         uuids = self.eda.call("dmt_Project.getAllProjectsUuid", timeout=15) or []
         return [self.eda.call("dmt_Project.getProjectInfo", u, timeout=10) for u in uuids]
 
-    def open_project(self, uuid):
-        return self.eda.call("dmt_Project.openProject", uuid, timeout=20)
+    # open_project defined at line 119 with robust retry/validation logic
+    # DO NOT override here — the robust version handles dialogs + load verification
 
     def create_project(self, name):
         return self.eda.call("dmt_Project.createProject", name, timeout=20)
