@@ -49,6 +49,14 @@ class RoutePair:
 
 
 @dataclass
+class DiffPair:
+    """Two nets that form a differential pair (e.g. ``USB_DP``/``USB_DN``)."""
+    base: str
+    p_net: str
+    n_net: str
+
+
+@dataclass
 class RouteResult:
     """Result of routing attempt."""
     routed: int = 0
@@ -783,6 +791,139 @@ class Router:
                 result.tracks_added += len(body) - 1 + 2
                 result.vias_added += 2
 
+            result.routed += 1
+
+        return result
+
+    # -- Differential-pair routing ---------------------------------------
+    # High-speed buses (USB, HDMI, MIPI, Ethernet, LVDS …) carry their signal
+    # as two nets driven in anti-phase. They must be routed as a *coupled*
+    # pair: the two traces run parallel at a constant edge-to-edge gap (which
+    # sets the differential impedance) and are length-matched so the two
+    # halves arrive in phase. The generic point-to-point router treats them as
+    # two unrelated nets and will happily route them far apart with different
+    # lengths — destroying the differential behaviour. This routes them
+    # together instead.
+
+    # Longest / most specific conventions first so ``USB_DP`` matches ``_DP``
+    # before the bare ``P`` rule could mis-fire.
+    _DIFF_SUFFIXES = (("_DP", "_DN"), ("_DP", "_DM"), ("_P", "_N"),
+                      ("_p", "_n"), ("+", "-"), ("P", "N"))
+
+    def find_diff_pairs(
+        self, only_nets: Optional[set[str]] = None
+    ) -> list["DiffPair"]:
+        """Detect differential pairs by net-name convention.
+
+        A pair is two routable nets whose names share a base and differ only
+        by a positive/negative suffix (``CLK_P``/``CLK_N``, ``D0+``/``D0-`` …).
+        """
+        names = set()
+        for fp in self.board.GetFootprints():
+            for pad in fp.Pads():
+                n = pad.GetNet()
+                if n and n.GetNetname():
+                    names.add(n.GetNetname())
+        if only_nets is not None:
+            names &= only_nets
+
+        seen: set[str] = set()
+        out: list[DiffPair] = []
+        for name in sorted(names):
+            if name in seen:
+                continue
+            for sp, sn in self._DIFF_SUFFIXES:
+                if sp == sn or not name.endswith(sp):
+                    continue
+                # Guard the bare ``P``/``N`` case so ``GND``-style names that
+                # merely end in ``N`` are not mistaken for a pair member.
+                if sp in ("P", "N") and len(name) <= len(sp):
+                    continue
+                base = name[: -len(sp)]
+                mate = base + sn
+                if mate in names and mate != name:
+                    out.append(DiffPair(base=base, p_net=name, n_net=mate))
+                    seen.add(name)
+                    seen.add(mate)
+                    break
+        return out
+
+    def route_diff_pairs(
+        self,
+        diff_pairs: Optional[list["DiffPair"]] = None,
+        width_mm: float = 0.2,
+        gap_mm: float = 0.2,
+        layer: int = pcbnew.F_Cu,
+    ) -> RouteResult:
+        """Route differential pairs as coupled, length-matched parallel traces.
+
+        For each pair the two driver pads define one end and the two receiver
+        pads the other. We run a shared centreline between the endpoint
+        midpoints and offset it by ``±(gap+width)/2`` perpendicular to give two
+        parallel polylines — P on one side, N on the other — then fan each
+        polyline end back into its own pad. By construction the two traces keep
+        a constant ``gap`` and have equal length (mirror images about the
+        centreline), which is exactly the differential constraint.
+        """
+        if diff_pairs is None:
+            diff_pairs = self.find_diff_pairs()
+        result = RouteResult(total=len(diff_pairs))
+        if not diff_pairs:
+            return result
+
+        if self._spatial is None:
+            bbox = self.board.GetBoardEdgesBoundingBox()
+            bw = pcbnew.ToMM(bbox.GetWidth()) + 10
+            bh = pcbnew.ToMM(bbox.GetHeight()) + 10
+            self._spatial = _SpatialIndex(bw, bh, cell_mm=0.2,
+                                          mark_clearance_mm=self.clearance_mm)
+            self._seed_pads()
+
+        # Centre-to-centre offset: half the gap plus half a trace on each side.
+        off = (gap_mm + width_mm) / 2.0
+        for dp in diff_pairs:
+            unrouted = {p.net_name: p for p in self.get_unrouted()}
+            pp = unrouted.get(dp.p_net)
+            pn = unrouted.get(dp.n_net)
+            net_p = self.board.FindNet(dp.p_net)
+            net_n = self.board.FindNet(dp.n_net)
+            if not (pp and pn and net_p and net_n):
+                result.failed += 1
+                continue
+
+            # Endpoint midpoints define the shared centreline. Pad A of each
+            # net is the "near" end; pads were ordered by get_unrouted's MST.
+            ax = (pp.x_a + pn.x_a) / 2.0
+            ay = (pp.y_a + pn.y_a) / 2.0
+            bx = (pp.x_b + pn.x_b) / 2.0
+            by = (pp.y_b + pn.y_b) / 2.0
+            dx, dy = bx - ax, by - ay
+            length = math.hypot(dx, dy)
+            if length < 1e-6:
+                result.failed += 1
+                continue
+            # Unit perpendicular to the centreline.
+            ux, uy = -dy / length, dx / length
+
+            # P sits on the side its near pad already lies; keep N opposite so
+            # the traces never cross over the centreline.
+            side = 1.0
+            if ((pp.x_a - ax) * ux + (pp.y_a - ay) * uy) < 0:
+                side = -1.0
+
+            def _emit(pair, net, sgn):
+                a_off = (ax + ux * off * sgn, ay + uy * off * sgn)
+                b_off = (bx + ux * off * sgn, by + uy * off * sgn)
+                poly = [(pair.x_a, pair.y_a), a_off, b_off,
+                        (pair.x_b, pair.y_b)]
+                for i in range(len(poly) - 1):
+                    self._add_track_seg(poly[i][0], poly[i][1],
+                                        poly[i + 1][0], poly[i + 1][1],
+                                        width_mm, layer, net)
+                return len(poly) - 1
+
+            result.tracks_added += _emit(pp, net_p, side)
+            result.tracks_added += _emit(pn, net_n, -side)
             result.routed += 1
 
         return result

@@ -101,6 +101,64 @@ class TestMultilayerRouter:
         assert inner, "expected at least one track routed on the inner layer"
 
 
+class TestDiffPairRouting:
+    def test_find_diff_pairs_by_convention(self):
+        b = _make_board()
+        b.add_nets("GND", "USB_DP", "USB_DN", "CLK_P", "CLK_N", "S0")
+        b.place("Connector_PinHeader_2.54mm", "PinHeader_1x06_P2.54mm_Vertical",
+                "J1", 10, 17, value="A")
+        b.place("Connector_PinHeader_2.54mm", "PinHeader_1x06_P2.54mm_Vertical",
+                "J2", 40, 17, value="B")
+        for j in ("J1", "J2"):
+            b.assign_net(j, "1", "GND")
+            b.assign_net(j, "2", "USB_DP")
+            b.assign_net(j, "3", "USB_DN")
+            b.assign_net(j, "4", "CLK_P")
+            b.assign_net(j, "5", "CLK_N")
+            b.assign_net(j, "6", "S0")
+
+        r = Router(b.board, min_clearance_mm=0.15)
+        pairs = {dp.base: (dp.p_net, dp.n_net) for dp in r.find_diff_pairs()}
+        assert pairs["USB"] == ("USB_DP", "USB_DN")
+        assert pairs["CLK"] == ("CLK_P", "CLK_N")
+        # Single-ended nets are not mistaken for pair members.
+        assert "GND" not in pairs and "S0" not in pairs
+
+    def test_route_diff_pair_coupled_and_length_matched(self):
+        b = _make_board(w=50, h=30)
+        b.add_nets("D_P", "D_N")
+        b.place("Connector_PinHeader_2.54mm", "PinHeader_1x02_P2.54mm_Vertical",
+                "J1", 10, 15, value="A")
+        b.place("Connector_PinHeader_2.54mm", "PinHeader_1x02_P2.54mm_Vertical",
+                "J2", 40, 15, value="B")
+        b.assign_net("J1", "1", "D_P")
+        b.assign_net("J1", "2", "D_N")
+        b.assign_net("J2", "1", "D_P")
+        b.assign_net("J2", "2", "D_N")
+
+        r = Router(b.board, min_clearance_mm=0.15)
+        result = r.route_diff_pairs(width_mm=0.2, gap_mm=0.2)
+        assert result.routed == 1
+        assert result.tracks_added > 0
+
+        def _len(net_name):
+            total = 0.0
+            for t in b.board.GetTracks():
+                if t.GetClass() != "PCB_TRACK":
+                    continue
+                n = t.GetNet()
+                if n and n.GetNetname() == net_name:
+                    s, e = t.GetStart(), t.GetEnd()
+                    total += pcbnew.ToMM(int(((e.x - s.x) ** 2
+                                             + (e.y - s.y) ** 2) ** 0.5))
+            return total
+
+        lp, ln = _len("D_P"), _len("D_N")
+        assert lp > 0 and ln > 0
+        # Length-matched: the two halves differ by < 5%.
+        assert abs(lp - ln) / max(lp, ln) < 0.05
+
+
 class TestCollisionAwareRouting:
     def test_collision_avoidance(self):
         b = _make_board()

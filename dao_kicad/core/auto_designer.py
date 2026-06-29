@@ -228,6 +228,23 @@ def auto_design(spec: DesignSpec, output_dir: str | Path) -> DesignResult:
     # reflects real connectivity: a net delivered by a poured plane is
     # connected even though it routes zero point-to-point tracks.
     total_demand = len(Router(b.board, min_clearance_mm=cl).get_unrouted())
+
+    # Differential pairs (USB/HDMI/LVDS/Ethernet …) detected by net-name
+    # convention are routed first as coupled, length-matched parallel traces,
+    # then handed to the generic router as already-done (skipped) nets. Boards
+    # with no such nets are unaffected.
+    dp_failed = 0
+    diff_pairs = [
+        d for d in Router(b.board, min_clearance_mm=cl).find_diff_pairs()
+        if d.p_net not in skip and d.n_net not in skip
+    ]
+    if diff_pairs:
+        dp_res = Router(b.board, min_clearance_mm=cl).route_diff_pairs(
+            diff_pairs, width_mm=tw, gap_mm=cl)
+        dp_failed = dp_res.failed
+        for d in diff_pairs:
+            skip.update((d.p_net, d.n_net))
+
     if layers >= 4:
         r = Router(b.board, min_clearance_mm=cl).route_multilayer(
             width_mm=tw, power_width_mm=0.3, power_nets=pn, net_widths=nw,
@@ -238,7 +255,7 @@ def auto_design(spec: DesignSpec, output_dir: str | Path) -> DesignResult:
             power_nets=pn, net_widths=nw, skip_nets=skip)
 
     result.routes_total = total_demand or r.total
-    result.routes_completed = total_demand - r.failed
+    result.routes_completed = total_demand - r.failed - dp_failed
     result.vias = r.vias_added
 
     # Step 7: Pour planes and stitch. GND owns the outer layers and any inner
