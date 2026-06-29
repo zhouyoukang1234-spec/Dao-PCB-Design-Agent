@@ -76,8 +76,14 @@ class _SpatialIndex:
     BEFORE adding tracks. Resolution = cell_mm.
     """
 
-    def __init__(self, width_mm: float, height_mm: float, cell_mm: float = 0.5):
+    def __init__(self, width_mm: float, height_mm: float, cell_mm: float = 0.5,
+                 mark_clearance_mm: float = 0.1):
         self.cell = cell_mm
+        # Edge margin baked in when MARKING occupied copper. Reserving close to
+        # the real DRC clearance (instead of a flat 0.1) means a freshly routed
+        # track keeps its full keep-out from later nets, cutting clearance /
+        # shorting / solder_mask_bridge violations on dense boards.
+        self.mark_clearance = mark_clearance_mm
         self.cols = max(1, int(math.ceil(width_mm / cell_mm)) + 1)
         self.rows = max(1, int(math.ceil(height_mm / cell_mm)) + 1)
         # Per-layer occupancy: layer id -> {cell: net_name}. A track only
@@ -115,7 +121,7 @@ class _SpatialIndex:
     def mark(self, x1: float, y1: float, x2: float, y2: float,
              width_mm: float, net_name: str, layer: int = pcbnew.F_Cu):
         """Mark cells on ``layer`` as occupied by a track segment."""
-        hw = width_mm / 2 + 0.1  # include clearance
+        hw = width_mm / 2 + self.mark_clearance  # include clearance
         grid = self._grid(layer)
         for cell in self._cells_for_segment(x1, y1, x2, y2, hw):
             if cell not in grid:
@@ -158,10 +164,17 @@ class Router:
         result = router.route_all()
     """
 
-    def __init__(self, board: pcbnew.BOARD, min_clearance_mm: float = 0.2):
+    def __init__(self, board: pcbnew.BOARD, min_clearance_mm: float = 0.2,
+                 pad_clearance_margin_mm: float = 0.2):
         self.board = board
         self.clearance = pcbnew.FromMM(min_clearance_mm)
         self.clearance_mm = min_clearance_mm
+        # Foreign pads get a wider keep-out than track-to-track clearance.
+        # A track's final stub must reach its OWN pad, so it unavoidably runs
+        # past that pad's fine-pitch neighbours; reserving extra room around
+        # every other-net pad pushes through-routes further out, cutting
+        # clearance/shorting violations around dense parts (QFP/BGA).
+        self.pad_clearance_mm = min_clearance_mm + pad_clearance_margin_mm
         self._spatial: _SpatialIndex | None = None
         self._rebuild_connectivity()
 
@@ -181,7 +194,7 @@ class Router:
         """
         if not self._spatial:
             return
-        cl = self.clearance_mm if clearance_mm is None else clearance_mm
+        cl = self.pad_clearance_mm if clearance_mm is None else clearance_mm
         nc_idx = 0
         for fp in self.board.GetFootprints():
             for pad in fp.Pads():
@@ -453,7 +466,8 @@ class Router:
         bbox = self.board.GetBoardEdgesBoundingBox()
         bw = pcbnew.ToMM(bbox.GetWidth()) + 10
         bh = pcbnew.ToMM(bbox.GetHeight()) + 10
-        self._spatial = _SpatialIndex(bw, bh, cell_mm=0.3)
+        self._spatial = _SpatialIndex(bw, bh, cell_mm=0.2,
+                                     mark_clearance_mm=self.clearance_mm)
 
         # Pre-populate with existing tracks
         for track in self.board.GetTracks():
@@ -529,7 +543,8 @@ class Router:
         bbox = self.board.GetBoardEdgesBoundingBox()
         bw = pcbnew.ToMM(bbox.GetWidth()) + 10
         bh = pcbnew.ToMM(bbox.GetHeight()) + 10
-        self._spatial = _SpatialIndex(bw, bh, cell_mm=0.3)
+        self._spatial = _SpatialIndex(bw, bh, cell_mm=0.2,
+                                     mark_clearance_mm=self.clearance_mm)
 
         for track in self.board.GetTracks():
             s = track.GetStart()

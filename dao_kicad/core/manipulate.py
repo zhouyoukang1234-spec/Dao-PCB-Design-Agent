@@ -84,7 +84,8 @@ class BoardBuilder:
                   uvia_size_mm: float = 0.3,
                   uvia_drill_mm: float = 0.1,
                   edge_clearance_mm: float = 0.25,
-                  solder_mask_min_mm: float = 0.0) -> "BoardBuilder":
+                  solder_mask_min_mm: float = 0.0,
+                  solder_mask_expansion_mm: float = -0.075) -> "BoardBuilder":
         """Set design rules based on fab capabilities.
 
         WISDOM from 250 boards: main DRC error sources are:
@@ -103,6 +104,12 @@ class BoardBuilder:
         ds.m_MicroViasMinDrill = pcbnew.FromMM(uvia_drill_mm)
         ds.m_CopperEdgeClearance = pcbnew.FromMM(edge_clearance_mm)
         ds.m_SolderMaskMinWidth = pcbnew.FromMM(solder_mask_min_mm)
+        # Slightly negative mask expansion = mask-defined apertures. Fine-pitch
+        # parts (e.g. LQFP 0.5mm pitch) sit close enough that adjacent
+        # different-net mask openings merge into one aperture, which KiCad
+        # flags as solder_mask_bridge. Pulling each opening in by ~0.075mm
+        # widens the mask web so neighbours stay separated.
+        ds.m_SolderMaskExpansion = pcbnew.FromMM(solder_mask_expansion_mm)
         # Set via drill min/max to match what router actually uses
         ds.m_MinThroughDrill = pcbnew.FromMM(min(via_drill_mm, 0.15))
         return self
