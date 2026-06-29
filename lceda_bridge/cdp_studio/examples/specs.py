@@ -13,6 +13,13 @@
 # DRC→导出」全链路，拓扑多样性（网数/扇出/层）才是关键，器件型号本身不影响验证。
 R = "0603 10k"        # 贴片电阻 0603（lib_Device.search 命中 0603WAF510KT5E）
 C = "0603 100nF"      # 贴片电容 0603（命中 KT-0603R）
+IC595 = "74HC595"     # 8 位移位寄存器 SOIC-16（命中 74HC595D,118；16 焊盘 1..16）
+LED = "LED 0805"      # 贴片 LED 0805（命中 KT-0805G；2 焊盘 1/2）
+
+# 74HC595 引脚（实测 getAllPinsByPrimitiveId 焊盘号 1..16）：
+#  15=Q0 1=Q1 2=Q2 3=Q3 4=Q4 5=Q5 6=Q6 7=Q7  8=GND 16=VCC
+#  9=Q7S(级联出) 10=/MR 11=SHCP(移位时钟) 12=STCP(锁存时钟) 13=/OE 14=DS(串行入)
+HC595_Q = ["15", "1", "2", "3", "4", "5", "6", "7"]  # Q0..Q7
 
 
 def _grid(items, cols, dx, dy, x0=0, y0=0):
@@ -72,8 +79,51 @@ def build_complex():
             "track_width": 10, "margin": 200, "components": comps}
 
 
+def build_mcu():
+    """板④·多 IC 大板：双片 74HC595 级联驱动 16 颗 LED（移位寄存器 LED 驱动器）。
+
+    ~38 元件 / ~100 焊盘 / ~41 网——较 complex(20/12) 是 5× 跳变，真正压测：
+      · place_and_net 的多引脚（16 脚 IC）引脚→网映射
+      · DSN 导出在高焊盘密度下的正确性
+      · freerouting 在高扇出（GND 一域接 1 IC + 8 LED 阴极 + 去耦 + 上下拉）下的收敛
+
+    本会话硬学习的应用：单网扇出是双层无平面板的瓶颈，故 GND 按 IC **分两域**
+    （GND1/GND2），每域扇出压到 ~11；控制网（SHCP/STCP/级联/OE/MR）天然跨两片 IC，
+    每网恰好 2 焊盘可布。这是真实「移位寄存器扩 IO」板的接法。"""
+    comps = []
+    for k in (1, 2):
+        gnd = "GND%d" % k
+        pins = {"16": "VCC", "8": gnd,
+                "11": "SHCP", "12": "STCP",   # 时钟两片共享 → 各 2 焊盘
+                "13": "OE", "10": "MR"}        # /OE /MR 两片共享
+        pins["14"] = "DIN" if k == 1 else "CHAIN"   # 串行入：U1 取 DIN，U2 取级联
+        if k == 1:
+            pins["9"] = "CHAIN"                      # U1 的 Q7S → 级联到 U2.DS
+        # 8 路输出：Qj → 限流电阻 → LED → 本域 GND
+        for j, qpin in enumerate(HC595_Q):
+            qnet = "Q%d_%d" % (k, j)
+            anode = "A%d_%d" % (k, j)
+            pins[qpin] = qnet
+            comps.append({"ref": "R%d_%d" % (k, j), "query": R, "rotation": 0,
+                          "pins": {"1": qnet, "2": anode}})
+            comps.append({"ref": "D%d_%d" % (k, j), "query": LED, "rotation": 0,
+                          "pins": {"1": anode, "2": gnd}})
+        comps.append({"ref": "U%d" % k, "query": IC595, "rotation": 0, "pins": pins})
+        comps.append({"ref": "C%d" % k, "query": C, "rotation": 90,
+                      "pins": {"1": "VCC", "2": gnd}})   # 每片去耦
+    # 上下拉：/OE 下拉到 GND1（使能），/MR 上拉到 VCC（释放复位）
+    comps.append({"ref": "R_OE", "query": R, "rotation": 0,
+                  "pins": {"1": "OE", "2": "GND1"}})
+    comps.append({"ref": "R_MR", "query": R, "rotation": 0,
+                  "pins": {"1": "MR", "2": "VCC"}})
+    _grid(comps, cols=8, dx=350, dy=350)
+    return {"name": "DAO_X1_HC595x2_LED16", "gnd_net": "GND1",
+            "track_width": 8, "margin": 200, "components": comps}
+
+
 BOARDS = {
     "simple": build_simple,
     "medium": build_medium,
     "complex": build_complex,
+    "mcu": build_mcu,
 }

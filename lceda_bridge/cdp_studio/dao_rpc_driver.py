@@ -342,10 +342,24 @@ return JSON.stringify({b64:btoa(s),size:u.length,name:f.name});}catch(e){return 
         return self._call("pcb_Document.save", timeout=20)
 
     # ---------- 钥匙 5c：官方 DSN/SES 自动布线闭环（纯 RPC + freerouting） ----------
-    def export_dsn(self, out_path, name="AutoRoute_DSN"):
-        """官方 `getDsnFile()` 导出 Specctra DSN（含器件/焊盘/网/板框/设计规则）。"""
-        return self._export("%s.pcb_ManufactureData.getDsnFile(%s)"
-                            % (EXT, json.dumps(name)), out_path)
+    def export_dsn(self, out_path, name="AutoRoute_DSN", retries=4, settle=1.5):
+        """官方 `getDsnFile()` 导出 Specctra DSN（含器件/焊盘/网/板框/设计规则）。
+
+        硬学习（多 IC 大板暴露）：在刚放置/保存完的**大板**上立即取 DSN，`getDsnFile()`
+        会**瞬态返回 null**（板的异步几何索引尚未就绪）——小板从不触发。故此处带「保存 +
+        短歇 + 重试」：每次重试前再 save() 一次推动索引落定，直到拿到非空 DSN。"""
+        getter = "%s.pcb_ManufactureData.getDsnFile(%s)" % (EXT, json.dumps(name))
+        last = None
+        for k in range(retries):
+            try:
+                return self._export(getter, out_path)
+            except DaoRpcError as e:
+                last = e
+                if "no file" not in str(e):
+                    raise
+                self.save()
+                time.sleep(settle)
+        raise DaoRpcError("export_dsn: DSN 始终为空（板索引未就绪）: %s" % last)
 
     def import_ses(self, ses_path):
         """把 freerouting 产出的 SES **注入渲染层为 File** 并经官方
