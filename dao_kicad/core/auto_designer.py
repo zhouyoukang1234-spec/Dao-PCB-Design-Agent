@@ -173,10 +173,39 @@ def auto_design(spec: DesignSpec, output_dir: str | Path) -> DesignResult:
     nca = classify_nets(spec.nets, spec.category)
     nw, pn = get_router_params(nca)
 
-    # GND is delivered by a poured plane (Step 7), not point-to-point tracks.
-    # Threading a high-fanout net like GND as dozens of stubs was the dominant
-    # source of shorting/clearance/solder_mask_bridge violations.
-    skip = {"GND"}
+    # Power/ground nets are delivered by poured planes (Step 7), not as
+    # point-to-point tracks. Threading a high-fanout net like GND or 3V3 as
+    # dozens of stubs was the dominant source of shorting/clearance/mask-bridge
+    # violations — and a fat power trace cannot thread a fine-pitch decap field
+    # without engulfing the neighbouring GND pads. GND always becomes a plane;
+    # on boards with inner layers (>=4) the other high-fanout power rails get
+    # their own inner plane too (one per spare inner layer, keeping >=1 inner
+    # for GND). Each plane net's pads are stitched to the plane with a via.
+    pad_net_counts: dict[str, int] = {}
+    for fp in b.board.GetFootprints():
+        for p in fp.Pads():
+            nnm = p.GetNetname()
+            if nnm:
+                pad_net_counts[nnm] = pad_net_counts.get(nnm, 0) + 1
+    try:
+        cu_layers = list(b.board.GetEnabledLayers().CuStack())
+    except Exception:
+        cu_layers = [pcbnew.F_Cu, pcbnew.B_Cu]
+    inner_layers = [ly for ly in cu_layers
+                    if ly not in (pcbnew.F_Cu, pcbnew.B_Cu)]
+    plane_nets = ["GND"]
+    if inner_layers:
+        cands = sorted(
+            (n for n in pn if n != "GND" and pad_net_counts.get(n, 0) >= 4),
+            key=lambda n: -pad_net_counts[n])
+        plane_nets += cands[:max(0, len(inner_layers) - 1)]
+    extra_planes = plane_nets[1:]
+
+    skip = set(plane_nets)
+    # Total connection demand (incl. plane-delivered nets) so completion %
+    # reflects real connectivity: a net delivered by a poured plane is
+    # connected even though it routes zero point-to-point tracks.
+    total_demand = len(Router(b.board, min_clearance_mm=cl).get_unrouted())
     if layers >= 4:
         r = Router(b.board, min_clearance_mm=cl).route_multilayer(
             width_mm=tw, power_width_mm=0.3, power_nets=pn, net_widths=nw,
@@ -186,21 +215,26 @@ def auto_design(spec: DesignSpec, output_dir: str | Path) -> DesignResult:
             strategy="manhattan", width_mm=tw, power_width_mm=0.4,
             power_nets=pn, net_widths=nw, skip_nets=skip)
 
-    result.routes_total = r.total
-    result.routes_completed = r.routed
+    result.routes_total = total_demand or r.total
+    result.routes_completed = total_demand - r.failed
     result.vias = r.vias_added
 
-    # Step 7: Pour GND on every copper layer and fill. A GND pad on any layer
-    # connects directly to that layer's plane, so no GND tracks/stitching are
-    # needed. One zone per layer (no duplicates) avoids zones_intersect.
+    # Step 7: Pour planes and stitch. GND owns the outer layers and any inner
+    # layer not assigned to another rail; each extra power rail owns one inner
+    # layer. One zone per (layer, net) avoids zones_intersect.
     m = 0.5
     corners = [(m, m), (W - m, m), (W - m, H - m), (m, H - m)]
-    try:
-        cu_layers = list(b.board.GetEnabledLayers().CuStack())
-    except Exception:
-        cu_layers = [pcbnew.F_Cu, pcbnew.B_Cu]
+    layer_net = {inner_layers[i]: net for i, net in enumerate(extra_planes)}
     for ly in cu_layers:
-        b.add_zone(corners, net_name='GND', layer=ly, solid_connection=True)
+        b.add_zone(corners, net_name=layer_net.get(ly, 'GND'), layer=ly,
+                   solid_connection=True)
+    # Stitch each inner-plane rail's pads down to its plane with a via.
+    for fp in b.board.GetFootprints():
+        for p in fp.Pads():
+            if p.GetNetname() in extra_planes:
+                pos = p.GetPosition()
+                b.add_via(pcbnew.ToMM(pos.x), pcbnew.ToMM(pos.y),
+                          0.45, 0.2, p.GetNetname())
 
     # Step 8: Save, then reload and fill. ZONE_FILLER segfaults on a
     # freshly-built in-memory board, so we round-trip through disk first;
