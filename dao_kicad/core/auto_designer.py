@@ -173,38 +173,54 @@ def auto_design(spec: DesignSpec, output_dir: str | Path) -> DesignResult:
     nca = classify_nets(spec.nets, spec.category)
     nw, pn = get_router_params(nca)
 
+    # GND is delivered by a poured plane (Step 7), not point-to-point tracks.
+    # Threading a high-fanout net like GND as dozens of stubs was the dominant
+    # source of shorting/clearance/solder_mask_bridge violations.
+    skip = {"GND"}
     if layers >= 4:
         r = Router(b.board, min_clearance_mm=cl).route_multilayer(
-            width_mm=tw, power_width_mm=0.3, power_nets=pn, net_widths=nw)
+            width_mm=tw, power_width_mm=0.3, power_nets=pn, net_widths=nw,
+            skip_nets=skip)
     else:
         r = Router(b.board, min_clearance_mm=cl).route_all(
             strategy="manhattan", width_mm=tw, power_width_mm=0.4,
-            power_nets=pn, net_widths=nw)
+            power_nets=pn, net_widths=nw, skip_nets=skip)
 
     result.routes_total = r.total
     result.routes_completed = r.routed
     result.vias = r.vias_added
 
-    # Step 7: Add power planes
+    # Step 7: Pour GND on every copper layer and fill. A GND pad on any layer
+    # connects directly to that layer's plane, so no GND tracks/stitching are
+    # needed. One zone per layer (no duplicates) avoids zones_intersect.
     m = 0.5
     corners = [(m, m), (W - m, m), (W - m, H - m), (m, H - m)]
-    b.add_zone(corners, net_name='GND', layer=pcbnew.B_Cu)
-    if layers >= 4:
-        b.add_zone(corners, net_name='GND', layer=pcbnew.In1_Cu)
-    if layers >= 6:
-        b.add_zone(corners, net_name='GND', layer=pcbnew.In3_Cu)
-        b.add_zone(corners, net_name='GND', layer=pcbnew.In4_Cu)
+    try:
+        cu_layers = list(b.board.GetEnabledLayers().CuStack())
+    except Exception:
+        cu_layers = [pcbnew.F_Cu, pcbnew.B_Cu]
+    for ly in cu_layers:
+        b.add_zone(corners, net_name='GND', layer=ly)
 
-    # Step 8: Save and verify
+    # Step 8: Save, then reload and fill. ZONE_FILLER segfaults on a
+    # freshly-built in-memory board, so we round-trip through disk first;
+    # the reloaded, poured board is the one we DRC and export from.
     bp = b.save(output_dir / f"{spec.name}.kicad_pcb")
+    filled = pcbnew.LoadBoard(str(bp))
+    filled.BuildConnectivity()
+    try:
+        pcbnew.ZONE_FILLER(filled).Fill(filled.Zones())
+        pcbnew.SaveBoard(str(bp), filled)
+    except Exception:
+        pass
     result.board_path = bp
 
     drc = DrcEngine().check(bp)
     result.drc_errors = drc.error_count
     result.drc_warnings = drc.warning_count
 
-    # Step 9: Export manufacturing files
-    mfg = ExportEngine(b.board).full_manufacturing(output_dir / "mfg")
+    # Step 9: Export manufacturing files (from the poured board)
+    mfg = ExportEngine(filled).full_manufacturing(output_dir / "mfg")
     result.mfg_files = sum(len(v) for v in mfg.values())
 
     result.density = result.parts / (W * H) if (W * H) > 0 else 0

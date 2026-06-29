@@ -379,6 +379,21 @@ class BoardBuilder:
         self.board.Add(zone)
         return self
 
+    def fill_zones(self) -> float:
+        """Pour every copper zone so same-net pads are actually connected.
+
+        Connectivity MUST be rebuilt first: ``ZONE_FILLER`` decides which
+        copper belongs to which net from the connectivity graph, and without
+        it each pour computes to *zero* area (the whole plane is treated as an
+        unconnected island and discarded). Returns total filled area in nm^2.
+        """
+        try:
+            self.board.BuildConnectivity()
+            pcbnew.ZONE_FILLER(self.board).Fill(self.board.Zones())
+            return sum(z.GetFilledArea() for z in self.board.Zones())
+        except Exception:
+            return 0.0
+
     def add_keepout(self, points_mm: list[tuple[float, float]],
                     no_tracks: bool = True, no_vias: bool = True,
                     no_copper_pour: bool = True,

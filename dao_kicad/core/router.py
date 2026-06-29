@@ -443,6 +443,7 @@ class Router:
                   power_width_mm: float = 0.5,
                   power_nets: Optional[set[str]] = None,
                   net_widths: Optional[dict[str, float]] = None,
+                  skip_nets: Optional[set[str]] = None,
                   layer: int = pcbnew.F_Cu) -> RouteResult:
         """Route all unconnected pairs.
 
@@ -452,6 +453,10 @@ class Router:
             power_width_mm: width for power/ground nets
             power_nets: set of net names that are power (wider traces)
             net_widths: per-net width overrides (takes precedence)
+            skip_nets: nets NOT routed as tracks (delivered by copper pour
+                instead, e.g. a GND plane) — the dominant source of
+                shorting/clearance/mask-bridge errors is a high-fanout net
+                like GND threaded as dozens of point-to-point stubs.
             layer: copper layer to route on
         """
         if power_nets is None:
@@ -460,6 +465,8 @@ class Router:
             net_widths = {}
 
         pairs = self.get_unrouted()
+        if skip_nets:
+            pairs = [p for p in pairs if p.net_name not in skip_nets]
         result = RouteResult(total=len(pairs))
 
         # Initialize spatial index from board outline
@@ -519,6 +526,7 @@ class Router:
         power_width_mm: float = 0.4,
         power_nets: Optional[set[str]] = None,
         net_widths: Optional[dict[str, float]] = None,
+        skip_nets: Optional[set[str]] = None,
         via_size_mm: float = 0.45,
         via_drill_mm: float = 0.2,
     ) -> RouteResult:
@@ -538,6 +546,8 @@ class Router:
             net_widths = {}
 
         pairs = self.get_unrouted()
+        if skip_nets:
+            pairs = [p for p in pairs if p.net_name not in skip_nets]
         result = RouteResult(total=len(pairs))
 
         bbox = self.board.GetBoardEdgesBoundingBox()
