@@ -667,3 +667,52 @@ import **直接引用** `window.__epru`(`datas.dataStr:window.__epru`)→ 任何
   lane(夹在图纸内)。本轮未改动该路径,仅复验全链路仍走通且产出可制造件;留作 2j。
 
 沉淀:`cold_start.py`(健壮账号登录编排)、`jlc_login.py`(`op_pwd_robust` + 就绪轮询)。
+
+---
+
+## 会话 2j:确定性放件根治 —— 逆出 `sch_PrimitiveComponent.create` 真实签名 + 无串扰走线全链路闭环
+
+本源锚定:**与嘉立创EDA融为一体**=不靠表层合成鼠标/视口,而是直驱其底层放件原语。
+2i 末尾留下的"同网竖直段融合 + 合成放件丢件"两大缺陷,本轮从根上逆掉并活体验证。
+
+### 反向取证:读 live `fa` 构造源,逆出确定性放件真实签名
+经 CDP 在活体编辑器读 `_EXTAPI_ROOT_.sch_PrimitiveComponent.create` 的 `toString()`:
+```
+async create(t,i,n,r,s,a,o,l){ return await new fa("part",t,i,n,r,s,a,o,l).create() }
+```
+再读 `fa`(经放出的器件 live 实例 `constructor.toString()`)厘清 8 参的真实语义:
+```
+fa(componentType, deviceObj, x, y, subPartName, rotation=0, mirror=false,
+   addIntoBom=true, addIntoPcb=true, net, ...)
+```
+故 `create` 公开签名 = **create(device, x, y, subPartName, rotation, mirror, addIntoBom, addIntoPcb)**
+- `device = {uuid, libraryUuid, name}`(libraryType!=="2" 走 component 分支)
+- 坐标为**图纸数据坐标**;worker 内对 `y`、`rotation` 取负(已对齐,调用方传正常显示坐标)
+- 之前误把 designator 当第 4 参 → worker 回 `数据不符合规范`,即由此校准。
+
+### 确定性放件实证(`place_device_det` + `probe_2j_det_place.py`)
+- 同一电阻 device 连放 5 个到精确数据坐标 → 读回 `getState_X/Y` **5/5 完全相等**;
+  对照合成鼠标放件:`build_blinker.py` 本轮活体复跑**丢件 3/4、PCB 仅 2 器件、网 0 条**
+  —— 确定性放件严格优于合成放件(无视口漂移、无相同器件去重丢件)。
+- 沉淀 `eda_flow.place_device_det()`:直驱 `create` RPC,放点逐次精确可复现。
+
+### 连线电气真连的"地面真值"判定
+`sch_Net.getAllNetsName` 与引脚 `net` 字段**即时查询不可靠**(常空/None);唯一可信判据是
+`importChanges`+Apply 后 **PCB 侧 `pcb_Net.getAllNetsName`**。实证:两枚 create 放出的电阻,
+其引脚坐标间画一根直线 → PCB 出现该网 → **程序化连线 → create 件引脚电气真连成立**。
+
+### 同网融合的真因与根治:每网独立"无重叠走廊"
+之前"多网名融合"非连线不通,而是**不同网的线段共线重叠**(竖放器件两脚同 x、横放电阻两脚同 y)
+被 EDA 合成一根多网名导线;另需注意 **lane 必须夹在 A4 图纸内**(右缘 ~1170 单位,越界则 wire 创建失败)。
+根治 = 给每条网一条唯一走廊(不同 x/y、无重叠段)。
+
+### 确定性全链路最小闭环(`build_chain_det.py`)实测 **PASS**
+3 枚电阻竖直对齐(确定性放件)→ NetA=R1.2-R2.2(x=-20 直线)、NetB=R2.1-R3.1(x=+20 直线,无重叠)
+→ `importChanges`+Apply → **PCB 器件 3/3、网络 `[NETA, NETB]` 两条无融合** → 板框 → DRC 无致命 →
+导出 Gerber/BOM/Netlist 真字节。断言 `parts=3 / pcb_comps=3 / pcb_nets=2` → **RESULT PASS**,逐次可复现。
+
+### 配套
+- `eda_flow.clear_sch_parts()` / `clear_pcb_comps()`:经逆出的 `*.delete(ids)` 做干净起步(规避同 board 跨次残留)。
+- `probe_create_sig.py`:批量读放件类 API 的 `toString()/length`(签名取证脚手架)。
+- `build_ne555_det.py`:NE555 确定性放件版(放件 4/4 精确;多脚网的无串扰自动布线列为 2k:需小型正交布线器,
+  按"每网走廊 + 每脚让位通道"避免共 x/y 重叠,或改用网络标签按名连接)。

@@ -158,6 +158,29 @@ class Flow:
     def parts(self):
         return self.call("sch_PrimitiveComponent.getAllPrimitiveId", "part", timeout=12) or []
 
+    def clear_sch_parts(self):
+        """删空当前原理图页的所有器件(用于干净起步,避免跨次运行残留)。"""
+        ids = self.parts()
+        if ids:
+            try:
+                self.call("sch_PrimitiveComponent.delete", ids, timeout=20)
+            except Exception as e:
+                return {"err": str(e)[:120]}
+        return len(ids)
+
+    def clear_pcb_comps(self):
+        """删空当前 PCB 的所有器件(配合 clear_sch_parts 做干净起步)。"""
+        try:
+            ids = self.call("pcb_PrimitiveComponent.getAllPrimitiveId", timeout=15) or []
+        except Exception:
+            ids = []
+        if ids:
+            try:
+                self.call("pcb_PrimitiveComponent.delete", ids, timeout=20)
+            except Exception as e:
+                return {"err": str(e)[:120]}
+        return len(ids)
+
     def _retry_call(self, dotted, *args, tries=5, gap=1.5, **kw):
         """对偶发"业务失败"(刚放件/改件后数据未就绪)做轮询重试。"""
         last = None
@@ -222,6 +245,39 @@ class Flow:
             if new:
                 return new[0]
         return None
+
+    def place_device_det(self, device, x, y, designator=None, sub="",
+                         rotation=0, mirror=False, bom=True, pcb=True, timeout=20):
+        """**确定性放件**(会话 2j):经逆出的 `sch_PrimitiveComponent.create` 真实签名
+        按**图纸数据坐标**直接落件,不依赖视口/合成鼠标,放点精确、同器件可重复放置。
+
+        逆出签名(读 live fa 构造源):
+          create(device, x, y, subPartName, rotation, mirror, addIntoBom, addIntoPcb)
+          · device = {uuid, libraryUuid, name};worker 内对 y、rotation 取负(此处已对齐)
+          · 相比 placeComponentWithMouse+合成点击:无像素→数据映射漂移、无相同器件去重丢件。
+
+        返回新器件 primitiveId(失败抛 FlowError)。designator 给定则顺手改位号。
+        """
+        dev = {"uuid": device["uuid"], "libraryUuid": device["libraryUuid"],
+               "name": device.get("name")}
+        js = (r"(async function(){try{var pc=window._EXTAPI_ROOT_.sch_PrimitiveComponent;"
+              r"var r=await pc.create(%s,%d,%d,%s,%d,%s,%s,%s);"
+              r"return JSON.stringify({id:(r&&r.getState_PrimitiveId)?r.getState_PrimitiveId():null,"
+              r"x:r&&r.getState_X(),y:r&&r.getState_Y(),rot:r&&r.getState_Rotation()});}"
+              r"catch(err){return JSON.stringify({err:String(err)});}})()"
+              % (json.dumps(dev), int(round(x)), int(round(y)), json.dumps(sub), int(rotation),
+                 "true" if mirror else "false", "true" if bom else "false", "true" if pcb else "false"))
+        v, e = d.evaluate(self.ws, js, await_promise=True, timeout=timeout)
+        try:
+            res = json.loads(v) if v else {"evalerr": e}
+        except Exception:
+            res = {"raw": v, "evalerr": e}
+        pid = res.get("id")
+        if not pid:
+            raise FlowError("place_device_det 失败: %s" % (res.get("err") or res))
+        if designator:
+            self.set_part(pid, designator=designator)
+        return pid
 
     def set_part(self, pid, **attr):
         """修改器件属性(x,y,rotation,mirror,designator,name...)。best-effort。"""
