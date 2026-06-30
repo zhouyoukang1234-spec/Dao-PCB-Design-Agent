@@ -306,6 +306,41 @@ def build_bga():
             "components": comps}
 
 
+def build_qdiff():
+    """板⑬·把 cap 的差分发现**转成能力**:在高脚数 LQFP48 上布一条**真差分对**。
+
+    cap 实证「退化短桩声明 diff_pair 触发 Differential Pair Error」;此板给差分对**可并走
+    的真实跨段**——源在 U1 左边相邻两脚(2=DP_P / 4=DP_N),sink 用一对**竖向紧邻**串阻
+    (R_P/R_N 远置左侧、Y 仅差 ±60mil),P/N 自源脚平行向左横贯到 sink。声明 diff_pairs +
+    equal_length + 类线宽 HS_W,布线后 length_audit 量 skew。验证:真差分拓扑 + 高脚数器件
+    下 freerouting 差分布线收敛 DRC=0(对照 cap 的 DRC=1 退化反例)。"""
+    pins = {p: "VCC" for p in ("6", "18", "30", "42")}
+    pins.update({p: "GND" for p in ("12", "24", "36", "48")})
+    pins["2"] = "DP_P"
+    pins["4"] = "DP_N"
+    comps = [
+        {"ref": "U1", "query": LQFP48, "rotation": 0, "x": 0, "y": 0,
+         "pins": pins},
+        # sink:远置左侧、竖向紧邻 → 强制 P/N 平行横贯成「可并走真实跨段」
+        {"ref": "R_P", "query": R, "rotation": 0, "x": -1500, "y": 60,
+         "pins": {"1": "DP_P", "2": "TP"}},
+        {"ref": "R_N", "query": R, "rotation": 0, "x": -1500, "y": -60,
+         "pins": {"1": "DP_N", "2": "TN"}},
+        {"ref": "C1", "query": C, "rotation": 90, "x": 600, "y": 600,
+         "pins": {"1": "VCC", "2": "GND"}},
+    ]
+    return {"name": "DAO_QD1_QFPDiffPair", "gnd_net": "GND",
+            "track_width": 8, "margin": 220, "copper_layers": 4,
+            "components": comps,
+            "constraints": {
+                "net_classes": {"HS": ["DP_P", "DP_N"], "PWR": ["VCC", "GND"]},
+                "diff_pairs": {"DP": ["DP_P", "DP_N"]},
+                "equal_length": {"DP_EQ": ["DP_P", "DP_N"]},
+                "track_rules": {"HS_W": {"default_mm": 0.2,
+                                         "min_mm": 0.15, "max_mm": 0.4}},
+                "class_rules": {"HS": {"Track": "HS_W"}}}}
+
+
 def build_cap():
     """板⑫·合龙:原语**可组合**一板同跑——auto_fanout(QFP 几何扇出)+ 约束级(网类/
     等长组)+ 4 层 + 布线后 length_audit,验证诸原语并非各自孤立。
@@ -390,4 +425,5 @@ BOARDS = {
     "bga": build_bga,
     "skewlen": build_skewlen,
     "cap": build_cap,
+    "qdiff": build_qdiff,
 }
