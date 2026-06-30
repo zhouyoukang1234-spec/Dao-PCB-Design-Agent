@@ -310,16 +310,30 @@ Safe Spacing:hs_spc` 三属性绑定确认，**DRC=0 CLEAN（1 试）**。
 
 按"先测绘、后落地、不臆测"的本源，以下边界已探明结构、但因**模板缺样本或需深挖校验器/换布线器**，本轮**只测绘不写**：
 
-1. **Blind/Buried Via（盲埋孔）**：`Physics/Blind/Buried Via` 子规则节点形态为 `{editName,
-   isSetDefault, table}`——**非 form 态**，而是 `table`（层对条目表）。默认子规则 `blindVia`
-   的 `table` 为**空**（`isSetDefault:True`），故**无样本可克隆**；其行 schema 在 `ui.js` 当前
-   bundle 未直接命中（疑在别的 bundle 或键名异化）。落地须先从校验器测得层对条目行结构，**不可臆测**。
-   价值定位：HDI 多层盲埋孔为高阶需求，ROI 暂低，故precisely-map 后延后。
+1. ~~Blind/Buried Via（盲埋孔）~~ **（已解·见下「盲埋孔层对规则」）**：行 schema 已从
+   `pcb3dview.js` 测得并实证落库。
 2. ~~差分对对象层绑定~~ **（已解·见下「DP 生效本源」）**：实测差分对对象
    （`getAllDifferentialPairs`）只有 `{name,positiveNet,negativeNet}`、**无规则引用字段**——
    DP 规则不经任何绑定，而是由 `isSetDefault` 全局默认决定。已据此修正 `add_diff_pair_rule`。
 3. **等长/长度范围的真正满足**：规则可下达且 DRC 执行，但 freerouting 不做 length tuning——
    须引入会做长度匹配的布线器（阳向大工程）。
+
+### 盲埋孔层对规则（实测落地·add_blind_buried_via_rule）
+
+`Physics/Blind/Buried Via` 子规则节点为 `{editName, isSetDefault, table}`——`table` 是
+**层对条目表**，默认空（无样本可克隆）。行 schema 从 `pcb3dview.js` 测得：
+`{key, name, startLayer, endLayer, viaSizeRule}`，声明「某层对之间允许打盲/埋孔」，
+`viaSizeRule` 可引用具名过孔尺寸子规则。
+
+- **层号与位次**（实测 `getAllLayers`）：顶层 id=1、底层 id=2、内层 `Inner1..N` id 从 **15** 起
+  （15,16,…）。客户端 `getBlindLayerOrder`：`1→1`、`2→N(铜层数)`、内层 `i→i-13`；`name` 取
+  排序后层叠位次对 `"r-a"`。已在 `_blind_layer_order` 复刻，4 层板实测生成 `1-2`(Top↔Inner1)、
+  `2-3`(Inner1↔Inner2)，**与客户端一致**。
+- **去重**：层对以 `sort(start,end)` 去重（同对不可重复），已加护栏。写回后客户端把 `key`
+  规范化为 `blind0/blind1` 并补 `used` 标志——读回以「层对存在」为准（不认 key 字面）。
+- **实测**：4 层 mcu 全链路 DRC=0，两条层对规则读回确认、重复对触发护栏报错。
+- **诚实边界**：本函数把层对规则**落库**；盲/埋孔的**布线级几何实现**需具备盲埋孔能力的布线器，
+  freerouting 仅做通孔，故规则的几何满足仍是更深前沿。
 
 ### DP 生效本源（实测纠错·已修正 add_diff_pair_rule）
 
