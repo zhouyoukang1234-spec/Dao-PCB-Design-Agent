@@ -1089,15 +1089,18 @@ class Router:
 
         lengths: dict[str, float] = {}
         for track in self.board.GetTracks():
-            if track.GetClass() != "PCB_TRACK":
+            # PCB_ARC is a track item too; counting only PCB_TRACK and measuring
+            # the straight chord drops arc segments entirely (freerouting emits
+            # arcs), badly under-reporting length and skew. GetLength() is the
+            # true routed length of straight *and* arc segments.
+            if track.GetClass() not in ("PCB_TRACK", "PCB_ARC"):
                 continue
             n = track.GetNet()
             name = n.GetNetname() if n else ""
             if not name:
                 continue
-            s, e = track.GetStart(), track.GetEnd()
-            lengths[name] = lengths.get(name, 0.0) + math.hypot(
-                pcbnew.ToMM(e.x - s.x), pcbnew.ToMM(e.y - s.y))
+            lengths[name] = lengths.get(name, 0.0) + pcbnew.ToMM(
+                track.GetLength())
 
         out: list[DiffPairReport] = []
         for dp in diff_pairs:
@@ -1111,15 +1114,15 @@ class Router:
     def _net_lengths(self, nets: set[str]) -> dict[str, float]:
         out: dict[str, float] = {}
         for track in self.board.GetTracks():
-            if track.GetClass() != "PCB_TRACK":
+            # Include arcs and use the true routed length (see
+            # validate_diff_pairs): chord-only over PCB_TRACK drops arcs.
+            if track.GetClass() not in ("PCB_TRACK", "PCB_ARC"):
                 continue
             n = track.GetNet()
             name = n.GetNetname() if n else ""
             if name not in nets:
                 continue
-            s, e = track.GetStart(), track.GetEnd()
-            out[name] = out.get(name, 0.0) + math.hypot(
-                pcbnew.ToMM(e.x - s.x), pcbnew.ToMM(e.y - s.y))
+            out[name] = out.get(name, 0.0) + pcbnew.ToMM(track.GetLength())
         return out
 
     def tune_length_group(
