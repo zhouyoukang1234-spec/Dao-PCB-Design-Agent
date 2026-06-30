@@ -372,6 +372,24 @@ rep.added, rep.silk_texts_f, rep.silk_texts_b   # 重载实测各层文字数
 实测: 顶层 2 条 + 底层 1 条 → `added=3, silk_texts_f=2, silk_texts_b=1`; 空白文字自动跳过;
 texts 为空 / 缺板文件如实报错 `ok=False`。
 
+### 〇.19 接地过孔缝合 (`native_stitch.py`)
+
+> 反者道之动: EMI/散热缝合过孔本是人在 GUI 里沿网格一个个 ctrl+点出来的, 落到本源只是绑定某网码的
+> `PCB_VIA`。本层经子进程 (`_stitch_worker.py`) 在区域 (板框/封装包围盒/显式 region) 内按 `pitch_mm`
+> 网格放 THROUGH 过孔并绑定目标网 (默认 GND), 按"clearance + 过孔半径 + 焊盘自身半径"自动跳过会与
+> 其他网短接/重载改网的点, 落盘后**重载实测**目标网过孔数 (反臆造; 目标网不存在即拒跑, 不臆造网)。
+> 配合 native_zone 覆铜即成真正接地网。
+
+```python
+from kicad_origin.origin.native_stitch import NativeStitch
+rep = NativeStitch().stitch("in.kicad_pcb", "out.kicad_pcb",
+                            net="GND", pitch_mm=5, region=[5, 5, 45, 45])
+rep.added, rep.vias_on_net, rep.vias_total   # 重载实测: 落点全在 GND
+```
+
+实测: 40×40 区域 pitch 5 → 全部落点重载后均在 GND (`vias_on_net==added`); pitch 越细过孔越多;
+目标网不存在 / 缺板文件如实报错 `ok=False`。
+
 ## 一、摸清本源: KiCAD 9.0.9 原生能力面 (VM 实测)
 
 | 能力 | KiCAD 原生本源 | 取代我此前的"从零造" |
