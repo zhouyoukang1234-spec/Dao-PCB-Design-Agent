@@ -197,6 +197,24 @@ Layers Board)"[Spacing/Physics/Plane/Expansion], drc:0}`。**能力面盘点 = 9
 ③`overwriteCurrentRuleConfiguration` 写回；④`set_net_class_rule` 把高速类指向它。
 属"克隆档+写回"较重操作，仍按知止不殆留作下轮在自定义档上小步验证后封装。
 
+**`saveRuleConfiguration` 返回 `false` 的本源（读 `pro-ui/js/ui.js` 实现得）**：
+该方法的 `ruleConfiguration` 参数须是**裸 config 对象**（顶层即 `Spacing/Physics/Plane/
+Expansion` 四类），**不是 `{name, config}` 包装**（本轮两次 False 即因此 + 子规则未过校验）。
+其内部对一份**固定白名单**逐项强校验，缺任一项或任一项过不了 `xZt(attr, value)` 即返
+`false`：
+
+```
+Spacing:  [Safe Spacing, Other Spacing]
+Physics:  [Track, Net Length Range, Net Length Tolerance, Differential Pair, Blind/Buried Via, Via Size]
+Plane:    [Plane Zone, Copper Zone]
+Expansion:[Paste Mask Expansion, Solder Mask Expansion]
+```
+
+通过后：同名自定义档存在则 `allowOverwrite=true` 才覆盖、否则 false；同名系统档(`EY`)
+不可存；皆不中则 push 新档入 `usrPcbProcessConfigProfile` 持久化。**下轮唯一待解** =
+`xZt` 对单个子规则（如新增的 `hs_wide`）的合法结构校验细则——届时按其要求构造子规则
+即可一次过，无需再试错。这正印证「读软件本体源码 = 把 False 的因果看穿」胜过盲试。
+
 ## 一句话沉淀
 
 > 桌面离线版 = Web 编辑器层（`_EXTAPI_ROOT_` 同构）+ **本地化的账号层**（`/api/client/*`
