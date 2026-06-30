@@ -92,6 +92,7 @@
 - **`place_and_net(components, chunk=10)`** — 按 `chunk` 件**分批多发 eval**:治大板(如 48 脚 QFP ~120 次绑网)单发破 90s `NO_RESULT`,对任意规模线性可扩。
 - **`length_audit(constraints)`** — 布线后以 `pcb_Net.getNetLength` 量实测铜长,报 diff_pair **skew**(`|lP-lN|`)/ equal_length **spread**(`max-min`),据实入 `audit.steps.length_audit`。把「约束兑现度」变成可量测数字。
 - **`length_tune(constraints, tol=8, max_passes=6)`** — **布线后原位蛇形调长**,把 freerouting「不调长」的边界转成能力。以组内最长网为基准,给较短网在其**当前最长直段**删原段→同端点画**朝板内的曼哈顿蛇形**(端点不动故电气连续不破)。**闭环迭代**:蛇形几何长 ≠ `getNetLength` 实测增量,故每趟重测按真实 deficit 续补、并自然落到新的最长段(多段分摊),直到 spread≤tol 或无进展。tune 板实证 spread **300→0.0mil、2 趟、DRC=0 CLEAN**。spec 置 `length_tune:True` 即在 build 管线布线后自动调长(改铜后 DRC 重测)。
+- **`doc_source(pcb_uuid=None, parse=True, raw=False)`** — **PCB 文档本源序列化读出**:经 `sys_FileManager.getDocumentSource` 取官方序列化(行记录流 `{"type":TAG,"ticket":N,"id":..}||{payload}|`),按 type 结构化解析成 `{counts, records:[{type,ticket,id,payload}]}`。整板一发读出 526 记录/19 型(DOCHEAD/CANVAS/LAYER/LAYER_PHYS/NET/RULE/RULE_SELECTOR/COMPONENT/ATTR/PAD_NET/LINE/VIA/POLY/…),比逐 primitive `.get` 快一个量级。CLI:`python dao_rpc_driver.py docsrc [--records]`。**读写分治**(见下条本源教训)。
 - **`drc()` 结构化** — 每违规附 `net`+`pos(x,y)`,返回 `by_net` 把「DRC=N 某型错」变可定位到具体网与坐标的清单(如 mcu 偶发不收敛立现是哪域哪些网未布通)。
 - **`_eval(..., retries=2)`** — 对**瞬时** `NO_RESULT`(CDP 偶发空结果)有限重试 + 重连编辑器会话;真错误/超时如实抛,不掩盖。
 
@@ -100,6 +101,7 @@
 - **几何优先**有方向性,不是「永远紧簇」**(本会话反例)**:mcu(双层无平面、16 LED 密集阴极汇流)把扇出链**竖列紧簇**反令 DRC 由 ~4 暴增到 0/37/51。**就近紧簇利于高脚数逃逸,却害双层密集汇流**——后者紧簇令 GND 汇流与限流支路两层互锁拥塞,**均匀铺开(_grid)反更优**。故 mcu 保留 _grid;实验证伪即纳之(反者道之动)。
 - **差分对约束需可并走的真实跨段**(cap vs qdiff 实证):`auto_fanout` 的「焊盘→1 串阻」退化短桩上声明 `diff_pairs` 触发 Differential Pair Error(cap 实测 DRC=1);给配对两网真实并走跨段(qdiff:源相邻两脚→远端竖向紧邻 sink),freerouting 差分布线即收敛 DRC=0、skew≈2.7mil。
 - **边界→能力(length_tune·本会话)**:freerouting **不做长度调谐**曾据实存档为边界;今以**布线后原位蛇形**跨过它——删一段直走线、同端点重画更长的朝板内梳状折线,端点不动故连通不破。关键两堑:① 盲目**交替两侧**会把铜推出板框/贴焊盘(净距违规)→ 改**单侧朝板内 bbox 心 + 两端 inset**;② 蛇形**几何长 ≠ getNetLength 实测增量**(单发开环欠补)→ 改**闭环迭代**重测续补。tune 板 spread 300→0.0mil DRC=0。诚实留界:**短网/密板无处可蛇**(skewlen:NA 仅 ~220mil 欠 1380mil,物理补不满,留大 residual 据实记,不强补)。
+- **文件本源·读写分治(doc_source·本会话逆向)**:`.eprj2` **实为 SQLite**(`SQLite format 3`),但 PCB 几何**不**以扁平 blob 存——`documents/coppers/texts.dataStr` 常空,真实状态由 `branches/history_data/project_history_*` 的**操作日志(op-log)重建**(CRDT 式)。直接逆 op-log **脆弱且随版本漂移**,非本源正道。转锚**官方序列化层**:`sys_FileManager.getDocumentSource(uuid)` 一发取全文(行记录 `{"type":TAG,"ticket":N,"id":..}||{payload}|`),稳定可解析(`doc_source` 原语)。**吃一堑**:对偶的 `setDocumentSource(uuid,src)` **整文回写不生效**(实测恒返 `False`;改 LINE.width 读回不变,仅 DOCHEAD.client 重序列化)——故**读经序列化、写经 typed primitive(`.modify/.create/.delete`)/ 布线经 `importAutoRouteSesFile`**,各得其所,不强行整文写(知止不殆)。
 - **诚实定界**:① headless 无实铜覆铜(`rebuildCopperRegion` 恒 undefined,见 FINDINGS);② freerouting **仅通孔**——故 BGA **内圈球** escape 是当前布线级前沿(等长/差分长度匹配已由 `length_tune` 在布线后补上,见上条);③ length_audit 的 skew/spread 取决于放置对称性,如实记录(hs 对称放置恰好 skew=0,skewlen 不对称放置 spread=1380mil 验证审计量真);④ mcu 偶发不收敛(~1/8)是 **2 层无平面**的真实边界,据实存档,不以更差紧簇粉饰。
 
 ### 板谱(14,VM 活体 DRC=0 CLEAN;mcu 见上注 ~1/8 偶发不收敛)

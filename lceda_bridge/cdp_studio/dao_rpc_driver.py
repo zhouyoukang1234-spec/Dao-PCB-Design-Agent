@@ -1200,6 +1200,58 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
             rep["drc"] = {"error": str(e)}
         return rep
 
+    def doc_source(self, pcb_uuid=None, parse=True, raw=False):
+        """**PCB 文档本源序列化读出**:经 `sys_FileManager.getDocumentSource` 取当前
+        PCB 的官方序列化——行记录流 `{"type":TAG,"ticket":N,"id":..}||{payload}|`
+        (DOCHEAD/CANVAS/LAYER/LAYER_PHYS/NET/RULE/RULE_SELECTOR/COMPONENT/ATTR/
+        PAD_NET/LINE/VIA/POLY/…),可整文导出或按 type 结构化解析。
+
+        把「PCB 文件本源」从内部 op-log(`.eprj2` 实为 SQLite·状态由 history/branch
+        操作日志重建,documents.dataStr 常空)的**脆弱泥潭**,抽到**稳定的官方序列化层**
+        ——同 cap→qdiff 之道:绕表层、锚本源。整板读出比逐 primitive `.get` 快一个量级。
+
+        **读写分治(吃一堑实证)**:此为**只读/导出**信道——`setDocumentSource(uuid,src)`
+        实测恒返 `False`、整文回写**不生效**(改 LINE.width 读回不变)。故编辑仍走 typed
+        primitive(`.modify/.create/.delete`),布线结果走 `importAutoRouteSesFile/
+        importChanges`。各得其所,不强行整文写(知止不殆)。
+
+        返回 {uuid, raw_len, counts:{type:n}, records:[{type,ticket,id,payload}]};
+        raw=True 附原文,parse=False 仅原文不解析。"""
+        if pcb_uuid is None:
+            info = self._call("dmt_Pcb.getCurrentPcbInfo", timeout=15) or {}
+            pcb_uuid = info.get("uuid")
+        if not pcb_uuid:
+            raise DaoRpcError("doc_source: no open PCB document")
+        src = self._call("sys_FileManager.getDocumentSource", pcb_uuid,
+                         timeout=30) or ""
+        res = {"uuid": pcb_uuid, "raw_len": len(src)}
+        if raw:
+            res["raw"] = src
+        if not parse:
+            return res
+        recs, counts = [], {}
+        for ln in src.split("\n"):
+            ln = ln.strip()
+            if not ln:
+                continue
+            head, sep, pay = ln.partition("||")
+            try:
+                h = json.loads(head)
+            except Exception:
+                counts["<unparsed>"] = counts.get("<unparsed>", 0) + 1
+                continue
+            t = h.get("type")
+            counts[t] = counts.get(t, 0) + 1
+            try:
+                payload = json.loads(pay.rstrip("|")) if sep else None
+            except Exception:
+                payload = None
+            recs.append({"type": t, "ticket": h.get("ticket"),
+                         "id": h.get("id"), "payload": payload})
+        res["counts"] = counts
+        res["records"] = recs
+        return res
+
     def capabilities(self, detail=False):
         """introspect `_EXTAPI_ROOT_`：{ns_count, method_count[, methods]}。
 
@@ -1535,6 +1587,7 @@ def _main(argv):
     用法：
         python dao_rpc_driver.py report [--port 29230]   # 层/网络/规则/DRC 自审
         python dao_rpc_driver.py caps   [--port 29230]    # _EXTAPI_ROOT_ 能力面
+        python dao_rpc_driver.py docsrc [--port 29230] [--records]  # 文档本源序列化(按 type 计数/全记录)
     """
     cmd = argv[0] if argv else "report"
     port = 29230
@@ -1545,8 +1598,14 @@ def _main(argv):
         out = drv.capabilities(detail="--detail" in argv)
     elif cmd == "report":
         out = drv.board_report()
+    elif cmd == "docsrc":
+        ds = drv.doc_source(parse=True)
+        out = {"uuid": ds["uuid"], "raw_len": ds["raw_len"],
+               "counts": ds["counts"]}
+        if "--records" in argv:
+            out["records"] = ds["records"]
     else:
-        out = {"err": "unknown cmd %r; use report|caps" % cmd}
+        out = {"err": "unknown cmd %r; use report|caps|docsrc" % cmd}
     print(json.dumps(out, ensure_ascii=False, indent=2))
 
 
