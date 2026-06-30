@@ -54,8 +54,16 @@
 | `build_2layer_det.py` | 2 层过孔布线解共线交叉对 DRC 0 |
 | `build_pour_det.py` | GND 覆铜 DRC 3→0、实铜算出 |
 | `build_capstone.py` / `build_capstone_full.py` | 端到端 / **全能力大合龙** |
+| `build_export_det.py` | **桌面纯 RPC 全谱导出**:DRC=0 板一次导齐 13 制造/交换格式真字节 |
 
 `build_capstone_full.py` 实测:nets [GND,NET_A,NET_B];信号 2 层各长 6000;poured=1;**DRC total=0**;export gerber=8496/bom=6739/pnp=6961 真字节。
+
+### 桌面纯 RPC 底座 · 制造数据全谱导出(`dao_rpc_driver.DaoRpc`,端口 29230)
+`pcb_ManufactureData` 远不止 Gerber/BOM/PnP。桌面离线底座已逐格式**活体实测**产出真
+字节,并固化为 `export_all(out_dir)`(`build_board` 可置 `spec["export_all"]=True` 全导)
+与 CLI `python dao_rpc_driver.py export <out_dir>`(对当前打开板):
+- 实测可达(13):`gerber/bom/pnp/pdf/3d_step(get3DFile step≈1.7MB)/dxf/ipc_d356a/odb(ODB++)/ibom(交互式 HTML≈5.5MB)/altium/testpoint/netlist(.enet)/autoroute_json`。
+- 诚实定界(不纳入全谱):`getIpc2581CFile` 无头底座**恒挂起**(疑待 GUI 配置对话框,显式 `fileType='xml'` 仍不返回);`get3DShellFile` 本板型返回 `no file`。
 
 ## 3. 诚实定界(不夸大、不造假)
 

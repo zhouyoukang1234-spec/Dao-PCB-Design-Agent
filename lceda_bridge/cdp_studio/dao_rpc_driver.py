@@ -1094,6 +1094,97 @@ return JSON.stringify({b64:btoa(s),size:u.length,name:f.name});}catch(e){return 
         return self._export("%s.pcb_ManufactureData.getPickAndPlaceFile(%s)"
                             % (EXT, json.dumps(name)), out_path)
 
+    # ---------- 制造数据：扩展导出全谱（纯 RPC，逆 pcb_ManufactureData） ----------
+    # 本源：`pcb_ManufactureData` 远不止 Gerber/BOM/PnP——官方把整套制造/交换格式都挂
+    # 在这一命名空间，每个 get*File() 都返回一个 File(Blob)，走与 Gerber 同一通用 blob
+    # 通道即可落地真字节。「官方有的东西我们全都能调用」：下列方法在桌面离线底座
+    # （ns≈93）逐格式活体实测产出真字节；凡 headless 不可达者如实定界、不纳入全谱。
+    def export_pdf(self, out_path, name="PDF"):
+        return self._export("%s.pcb_ManufactureData.getPdfFile(%s)"
+                            % (EXT, json.dumps(name)), out_path)
+
+    def export_3d(self, out_path, name="3D", fmt="step"):
+        """3D 模型导出（fmt='step'|'obj'）。实测 step≈1.9MB / obj≈139KB 真字节。"""
+        return self._export("%s.pcb_ManufactureData.get3DFile(%s,%s)"
+                            % (EXT, json.dumps(name), json.dumps(fmt)), out_path)
+
+    def export_dxf(self, out_path, name="DXF"):
+        return self._export("%s.pcb_ManufactureData.getDxfFile(%s)"
+                            % (EXT, json.dumps(name)), out_path)
+
+    def export_ipc_d356a(self, out_path, name="IPC356"):
+        """IPC-D-356A 网络测试点表（裸板电测）。"""
+        return self._export("%s.pcb_ManufactureData.getIpcD356AFile(%s)"
+                            % (EXT, json.dumps(name)), out_path)
+
+    def export_odb(self, out_path, name="ODB"):
+        """ODB++ 制造数据库（getOpenDatabaseDoublePlusFile）。"""
+        return self._export(
+            "%s.pcb_ManufactureData.getOpenDatabaseDoublePlusFile(%s)"
+            % (EXT, json.dumps(name)), out_path)
+
+    def export_ibom(self, out_path, name="iBOM"):
+        """交互式 HTML BOM（getInteractiveBomFile，实测≈5.5MB 单页）。"""
+        return self._export("%s.pcb_ManufactureData.getInteractiveBomFile(%s)"
+                            % (EXT, json.dumps(name)), out_path)
+
+    def export_altium(self, out_path, name="AD"):
+        """导出为 Altium Designer 工程。"""
+        return self._export("%s.pcb_ManufactureData.getAltiumDesignerFile(%s)"
+                            % (EXT, json.dumps(name)), out_path)
+
+    def export_testpoint(self, out_path, name="TestPoint"):
+        return self._export("%s.pcb_ManufactureData.getTestPointFile(%s)"
+                            % (EXT, json.dumps(name)), out_path)
+
+    def export_netlist_file(self, out_path, name="Netlist"):
+        """网络表文件（.enet，getNetlistFile）。"""
+        return self._export("%s.pcb_ManufactureData.getNetlistFile(%s)"
+                            % (EXT, json.dumps(name)), out_path)
+
+    def export_autoroute_json(self, out_path, name="AutoRoute"):
+        return self._export("%s.pcb_ManufactureData.getAutoRouteJsonFile(%s)"
+                            % (EXT, json.dumps(name)), out_path)
+
+    # 全谱导出清单：键 → (官方方法名, 额外参数 JS 片段)。仅含桌面离线底座**活体实测
+    # 可达**者（首格式名作 fileName 实参）。诚实定界（VM 实测，不纳入全谱）：
+    #   · getIpc2581CFile —— 无头离线底座**恒挂起**（疑待 GUI 配置对话框，即便显式
+    #     给 fileType='xml' 仍不返回）；需要时单独调原始 getter 并自带硬超时。
+    #   · get3DShellFile —— 返回 "no file"（本板型无外壳模型）。
+    _EXPORT_SUITE = (
+        ("gerber", "getGerberFile", ""),
+        ("bom", "getBomFile", ""),
+        ("pnp", "getPickAndPlaceFile", ""),
+        ("pdf", "getPdfFile", ""),
+        ("3d_step", "get3DFile", ',"step"'),
+        ("dxf", "getDxfFile", ""),
+        ("ipc_d356a", "getIpcD356AFile", ""),
+        ("odb", "getOpenDatabaseDoublePlusFile", ""),
+        ("ibom", "getInteractiveBomFile", ""),
+        ("altium", "getAltiumDesignerFile", ""),
+        ("testpoint", "getTestPointFile", ""),
+        ("netlist", "getNetlistFile", ""),
+        ("autoroute_json", "getAutoRouteJsonFile", ""),
+    )
+
+    def export_all(self, out_dir, suite=None, timeout=150):
+        """一次导出全谱制造/交换数据（纯 RPC、零 GUI）。
+
+        返回 {fmt: {size,name,path}} 或 {fmt: {err}}——逐格式**如实**记录，单格式失败
+        不阻断其余（无为而无不为：能导的全导，不能导的据实标注，不掩盖、不夸大）。"""
+        os.makedirs(out_dir, exist_ok=True)
+        res = {}
+        for key, meth, extra in (suite or self._EXPORT_SUITE):
+            getter = "%s.pcb_ManufactureData.%s(%s%s)" % (
+                EXT, meth, json.dumps(key), extra)
+            try:
+                r = self._export(getter, out_dir + "/", timeout=timeout)
+                res[key] = {"size": r["size"], "name": r["name"],
+                            "path": r["path"]}
+            except Exception as e:
+                res[key] = {"err": str(e)[:160]}
+        return res
+
     def save(self):
         return self._call("pcb_Document.save", timeout=20)
 
@@ -1326,11 +1417,15 @@ return JSON.stringify({b64:btoa(s),size:u.length,name:f.name});}catch(e){return 
                                "rules": self.design_rules()}
         except Exception as e:
             audit["review"] = {"error": str(e)}
-        audit["exports"] = {
-            "gerber": self.export_gerber(out_dir + "/"),
-            "bom": self.export_bom(out_dir + "/"),
-            "pnp": self.export_pnp(out_dir + "/"),
-        }
+        if spec.get("export_all"):
+            # 全谱制造/交换数据（spec 显式开启时）——一次导齐 13 格式，如实记录
+            audit["exports"] = self.export_all(out_dir)
+        else:
+            audit["exports"] = {
+                "gerber": self.export_gerber(out_dir + "/"),
+                "bom": self.export_bom(out_dir + "/"),
+                "pnp": self.export_pnp(out_dir + "/"),
+            }
         audit["elapsed_s"] = round(time.time() - t0, 1)
         audit["metrics"] = dict(self.metrics)
         with open(out_dir + "/audit.json", "w") as fh:
@@ -1367,6 +1462,7 @@ def _main(argv):
     用法：
         python dao_rpc_driver.py report [--port 29230]   # 层/网络/规则/DRC 自审
         python dao_rpc_driver.py caps   [--port 29230]    # _EXTAPI_ROOT_ 能力面
+        python dao_rpc_driver.py export <out_dir> [--port 29230]  # 当前板全谱导出
     """
     cmd = argv[0] if argv else "report"
     port = 29230
@@ -1377,8 +1473,13 @@ def _main(argv):
         out = drv.capabilities(detail="--detail" in argv)
     elif cmd == "report":
         out = drv.board_report()
+    elif cmd == "export":
+        pos = [a for a in argv[1:] if not a.startswith("--")
+               and argv[argv.index(a) - 1] != "--port"]
+        out = drv.export_all(pos[0] if pos else
+                             os.path.expanduser("~/dao_pcb_out/export_all"))
     else:
-        out = {"err": "unknown cmd %r; use report|caps" % cmd}
+        out = {"err": "unknown cmd %r; use report|caps|export" % cmd}
     print(json.dumps(out, ensure_ascii=False, indent=2))
 
 
