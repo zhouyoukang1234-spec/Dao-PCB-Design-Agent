@@ -102,6 +102,19 @@ Layers Board)"[Spacing/Physics/Plane/Expansion], drc:0}`。**能力面盘点 = 9
 > 教训：**静默降级 + 残留续命**是最毒的组合——管线看似在跑、产物看似存在，
 > 实则全错。凡「挑运行时 / 复用产物」处，都要把「不达标」与「非新鲜」变成显式失败。
 
+## 多层板能力纳入（阴向·扩面 + 阳向·更复杂板）
+
+`_EXTAPI_ROOT_` 盘点出 `pcb_Layer.setTheNumberOfCopperLayers` 可用 → 桌面端纯 RPC
+即可把板从 2 层切到 4/6 层。已封 `set_copper_layers(n)`（设后读回校验，不一致即报错），
+并让 `build_board` 支持 `spec["copper_layers"]`（在放件/导 DSN **之前**定层 → DSN
+层栈即为多层，freerouting 自然用上内层）。
+
+- **实测**：mcu（38 件/41 网）切 4 层走全链路 → **DRC=0 CLEAN**（3 试收敛；
+  `set_copper_layers` 读回 `copper_layers=4`）。内层让出布线空间，密板更易收敛。
+- **本源观察**：`setTheNumberOfCopperLayers` 只改**层数**，**不改 DRC 规则档名**
+  ——板已 4 层，`design_rules().name` 仍是「JLCPCB Capability(Two Layers Board)」。
+  层数与规则档是两件正交的事；要严格按多层工艺核 DRC，还需另切规则档（后续纳入）。
+
 ## 一句话沉淀
 
 > 桌面离线版 = Web 编辑器层（`_EXTAPI_ROOT_` 同构）+ **本地化的账号层**（`/api/client/*`
