@@ -604,7 +604,7 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
                                 {"netLengthTolerance": tolerance_mm})
         return {"name": name, "tolerance": tolerance_mm, "form": f}
 
-    def add_diff_pair_rule(self, name, width_mm, gap_mm):
+    def add_diff_pair_rule(self, name, width_mm, gap_mm, make_default=True):
         """新增**自定义差分对子规则**（Physics/Differential Pair，form 态双表）并应用到
         当前 PCB。供 USB/HDMI/以太网等差分阻抗匹配（线宽 + 对内间距）。
 
@@ -613,9 +613,11 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
         （`ez` 只校验 min≤default，max 可为 0 表无上限）。克隆模板改两表各层默认值即可，
         经 `overwriteCurrentRuleConfiguration` 整体写回、读回确认。单位 mm。
 
-        注意（实测本源）：`Differential Pair` **不在 netClass 节点上**（其键里没有此属性），
-        故**不可经 `set_net_class_rule` 在网络类层绑定**——它属差分对对象层，须经差分对节点
-        绑定（留作下一前沿）。本函数只负责把具名 DP 子规则落到当前板（读回确认）。"""
+        **生效本源（实测纠错）**：`Differential Pair` 既不在 net/netClass 节点键里，差分对
+        对象（`getAllDifferentialPairs`）也只有 `{name,positiveNet,negativeNet}`、**无规则
+        引用字段**——即 DP 规则**不经任何绑定**，而是由子规则上的 `isSetDefault` 标志决定**哪
+        条作为全局默认**应用于所有差分对。故 `make_default=True`（默认）时，把新规则置为**唯一
+        默认**（其余 `isSetDefault=False`），新规则才真正生效；`False` 则仅落库不夺默认。"""
         cfg = (self._call("pcb_Drc.getCurrentRuleConfiguration", timeout=25)
                or {}).get("config", {})
         bucket = cfg.get("Physics", {}).get("Differential Pair", {})
@@ -634,13 +636,20 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
             layer["minValue"] = round(gap_mm * 0.5, 4)
             layer["defaultValue"] = gap_mm
         bucket[name] = tmpl
+        if make_default:
+            # DP 规则无绑定，唯 isSetDefault 决定全局生效项 → 立新规则为唯一默认
+            for key, sub in bucket.items():
+                sub["isSetDefault"] = (key == name)
         self._call("pcb_Drc.overwriteCurrentRuleConfiguration", cfg, timeout=30)
         back = ((self._call("pcb_Drc.getCurrentRuleConfiguration", timeout=25)
                  or {}).get("config", {}).get("Physics", {})
                 .get("Differential Pair", {}))
         if name not in back:
             raise DaoRpcError("add_diff_pair_rule(%s) 未落库" % name)
-        return {"name": name, "width": width_mm, "gap": gap_mm}
+        if make_default and not back[name].get("isSetDefault"):
+            raise DaoRpcError("add_diff_pair_rule(%s) 未夺得默认" % name)
+        return {"name": name, "width": width_mm, "gap": gap_mm,
+                "is_default": bool(back[name].get("isSetDefault"))}
 
     def net_rules(self):
         """网络/网络类的规则树（只读）。每个 netClass/net 节点带 Track、Safe Spacing、

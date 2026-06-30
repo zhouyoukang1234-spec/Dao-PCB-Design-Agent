@@ -315,12 +315,26 @@ Safe Spacing:hs_spc` 三属性绑定确认，**DRC=0 CLEAN（1 试）**。
    的 `table` 为**空**（`isSetDefault:True`），故**无样本可克隆**；其行 schema 在 `ui.js` 当前
    bundle 未直接命中（疑在别的 bundle 或键名异化）。落地须先从校验器测得层对条目行结构，**不可臆测**。
    价值定位：HDI 多层盲埋孔为高阶需求，ROI 暂低，故precisely-map 后延后。
-2. **差分对对象层绑定**：DP 子规则可落库（见上），但绑定在差分对对象层而非网络类层——
-   `getNetRules` 只暴露 net/netClass 两类节点，差分对节点的绑定 API 待测。
+2. ~~差分对对象层绑定~~ **（已解·见下「DP 生效本源」）**：实测差分对对象
+   （`getAllDifferentialPairs`）只有 `{name,positiveNet,negativeNet}`、**无规则引用字段**——
+   DP 规则不经任何绑定，而是由 `isSetDefault` 全局默认决定。已据此修正 `add_diff_pair_rule`。
 3. **等长/长度范围的真正满足**：规则可下达且 DRC 执行，但 freerouting 不做 length tuning——
    须引入会做长度匹配的布线器（阳向大工程）。
-4. **真机深度融合（DAO Bridge）**：经内网穿透/归一 MCP 直操用户本机 JLCEDA 整机（pc/browser/
-   plugin/vscode 四模块）。隧道随 IDE 插件存活；插件离线时两道皆不可达，须用户重启 IDE 重建隧道。
+
+### DP 生效本源（实测纠错·已修正 add_diff_pair_rule）
+
+`Differential Pair` 规则的生效路径与 track/via/spacing **截然不同**：
+
+- track/via/spacing：经 `set_net_class_rule` 在 **netClass 节点**逐属性绑定（值=具名子规则）。
+- **DP：不经任何绑定**——`net`/`netClass` 节点键里都没有 `Differential Pair`，差分对对象
+  （`getAllDifferentialPairs`）也只有 `{name,positiveNet,negativeNet}` 无规则字段。DP 子规则
+  靠节点上的 `isSetDefault` 标志选出**唯一全局默认**，应用于所有差分对。
+- **修正**：旧版 `add_diff_pair_rule` 克隆模板时连 `isSetDefault:true` 一起克隆 → 出现**两个
+  默认**（歧义、实不生效）。现 `make_default=True`（默认）把新规则置为唯一默认、其余清 false，
+  并读回校验 `isSetDefault`。实测 `usb_dp`(0.2/0.18mm) 夺默认（`differentialPair:false`），
+  全链路 **DRC=0 CLEAN（2 试）**。
+- 心法：**同名「规则属性」未必同「生效机制」**——有的靠类层引用绑定，有的靠子规则上的默认标志。
+  封装前须实测「这条规则到底怎么被选中」，否则会落库却不生效（最隐蔽的失败）。
 
 ## 一句话沉淀
 
