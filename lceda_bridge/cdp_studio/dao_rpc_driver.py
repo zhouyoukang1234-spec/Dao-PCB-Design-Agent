@@ -359,6 +359,17 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
             by[e["type"]] = by.get(e["type"], 0) + 1
         return {"total": len(viol), "by_type": by, "violations": viol}
 
+    def set_copper_layers(self, n):
+        """设板铜层数（2/4/6…）。`pcb_Layer.setTheNumberOfCopperLayers` 实测可用。
+
+        多层板实践的本源开关：4 层给布线让出内层（信号/电源/地），高密板更易收敛。
+        须在放件/导 DSN **之前**调用，使 `getDsnFile()` 导出的层栈即为多层。"""
+        ok = self._call("pcb_Layer.setTheNumberOfCopperLayers", int(n), timeout=20)
+        got = self._call("pcb_Layer.getTheNumberOfCopperLayers", timeout=15)
+        if got != int(n):
+            raise DaoRpcError("set_copper_layers(%s) 未生效（读回 %s）" % (n, got))
+        return {"requested": int(n), "copper_layers": got, "ok": bool(ok)}
+
     # ---------- 自审 / 感知（只读，喂闭环自我审视） ----------
     def layer_info(self):
         """板层快照：{copper_layers, stackup}。多层板实践的前置感知。"""
@@ -563,6 +574,10 @@ return JSON.stringify({b64:btoa(s),size:u.length,name:f.name});}catch(e){return 
         puuid = self.create_project(spec["name"])
         audit["project_uuid"] = puuid
         self.open_pcb(puuid)
+
+        # 多层板：放件/导 DSN 之前先定层数，使层栈在 DSN 中即为多层
+        if spec.get("copper_layers"):
+            audit["steps"]["layers"] = self.set_copper_layers(spec["copper_layers"])
 
         # 解析器件谱：每个 ref 用 query 检索一次（缓存同 query）
         cache = {}
