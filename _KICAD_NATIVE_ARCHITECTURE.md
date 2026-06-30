@@ -104,6 +104,23 @@ rep = build_from_netlist(net, "out/", fp_map={"U1": "Package_QFP:LQFP-48_7x7mm_P
 风扇控制器真原理图 → 6 件含封装 → 可建板; 完整 fixture (3×0805 + 4 网) →
 build unrouted 2 → route 0 (+4 走线) → fab zip, **全闭环 ok**。
 
+### 〇.5 DRC 驱动自愈环 · 以真 DRC 为裁判 (`native_heal.py`)
+
+> 无为而无不为: 不臆测板哪里错, 以 KiCad **真 DRC 引擎**为唯一裁判 —— 跑
+> `kicad-cli pcb drc` 出违规, 按类归因, 施本源对策, 再跑 DRC 看收敛, 迭代至止。
+> 间距类违规 (courtyards_overlap/clearance/shorting/solder_mask_bridge/silk_*)
+> 根多为器件挨太近 → `_heal_worker respace` (pcbnew 真挪件, 按最大包络+gap 栅格拉开
+> + 重画板框); 飞线未布 → `NativeRouter` 闭合。反臆造: 诊断全取自真 DRC, 修不动的
+> 违规如实留报告, 不假装清零。
+
+```python
+from kicad_origin.origin.native_heal import NativeHealer
+rep = NativeHealer().heal("bad.kicad_pcb", "healed.kicad_pcb", max_passes=4)
+```
+
+实测 (3×0805 堆叠成板 → 真 DRC 24 违规 + 2 飞线): respace 化解全部间距类, route 闭飞线
+→ **24→0 违规 / 2→0 飞线, 1 pass 收敛**, ok。
+
 ## 一、摸清本源: KiCAD 9.0.9 原生能力面 (VM 实测)
 
 | 能力 | KiCAD 原生本源 | 取代我此前的"从零造" |
