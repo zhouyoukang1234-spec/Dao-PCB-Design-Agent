@@ -779,6 +779,17 @@ run_flow(spec, "out/", heal=True, route=True, fab=True)  # 自动多一道 groun
 GND 缝合过孔** → 投厂真 DRC **0 违规 / 0 未连**。golden 测试重载实测每颗 GND 过孔到异网走线的距离
 ≥ clearance (反臆造, 不靠 DRC 兜底而直接量距)。
 
+### 〇.39 净类深控贯到铜箔实证: 净类宽度经 freerouting 真 honor (主线一 · 反臆造)
+
+> 〇.36 的 netclass 只验到落 `.kicad_pro` + 重载读回 effective 轨宽 (纸面层)。本节把它推到铜箔:
+> **净类宽度是否被真布线器执行?** 不臆测, 直接量。
+
+**DSN 真带净类规则。** `pcbnew.ExportSpecctraDSN` 把每个净类导成 `(class <name> <nets...> (rule (width W) (clearance C)))`——实测 `Diff` 净类 (track_width 0.25 / clearance 0.2) 落为 `(class Diff USB_DM USB_DP ... (rule (width 250) (clearance 200)))`。freerouting 据此布线。
+
+**布线后逐网量实测。** 两连接器引出 USB 差分对 (USB_DP/USB_DM, 归 Diff 净类 0.25mm) + 电源/地 (默认窄轨)。`route` 后重载, 逐网收 `PCB_TRACK` 宽度: **USB_DP/USB_DM = 0.25mm** (净类宽被布线器真 honor), GND < 0.25 (默认网不受 Diff 类波及)。golden 测试 `test_netclass_width_honored_by_real_router` 锁此不变量 (router_only)。
+
+**诚实边界 (反臆造, 不夸大)。** 净类**宽度/间距**贯通到铜 (已证); 但真正的**耦合差分布线** (DP/DM 全程平行、维持恒定 gap) freerouting 1.9.0 经典 DSN 路径**不**单独编码差分配对指令, 两网按同宽独立布线而非耦合走线。即"差异化宽度"已落地, "耦合等距差分"仍是上游布线器局限——此处如实记录, 不充作已有能力。
+
 ## 一、摸清本源: KiCAD 9.0.9 原生能力面 (VM 实测)
 
 | 能力 | KiCAD 原生本源 | 取代我此前的"从零造" |

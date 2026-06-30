@@ -117,3 +117,47 @@ class TestNetclass:
         r = nb.NativeBuilder().build(spec)
         assert r["ok"] is False
         assert "unknown net" in r["error"]
+
+    @router_only
+    @pcbnew_only
+    def test_netclass_width_honored_by_real_router(self, tmp_path):
+        """深控贯到铜箔 (反臆造): 净类宽度经 freerouting 真布线后, 重载实测每网轨宽。
+
+        DSN 导出把净类落为 (class ... (rule (width ...))); freerouting 据此布线,
+        故差异化宽度不是纸面设置, 而是真落在铜走线上。两连接器引出 USB 差分对 +
+        电源/地, 差分对净类设 0.25mm, 默认网走默认窄轨, 布线后逐网量实测宽度。
+        """
+        import pcbnew
+        out = tmp_path / "diff.kicad_pcb"
+        spec = {
+            "out": str(out), "size_mm": [30, 20],
+            "components": [
+                {"ref": "J1", "lib": "Connector_PinHeader_2.54mm",
+                 "fp": "PinHeader_1x04_P2.54mm_Vertical", "x": 6, "y": 10},
+                {"ref": "J2", "lib": "Connector_PinHeader_2.54mm",
+                 "fp": "PinHeader_1x04_P2.54mm_Vertical", "x": 24, "y": 10},
+            ],
+            "nets": {"VCC": [["J1", "1"], ["J2", "1"]],
+                     "USB_DP": [["J1", "2"], ["J2", "2"]],
+                     "USB_DM": [["J1", "3"], ["J2", "3"]],
+                     "GND": [["J1", "4"], ["J2", "4"]]},
+            "netclasses": [{"name": "Diff", "track_width_mm": 0.25,
+                            "diff_pair_width_mm": 0.25, "diff_pair_gap_mm": 0.2,
+                            "nets": ["USB_DP", "USB_DM"]}],
+        }
+        assert nb.NativeBuilder().build(spec)["ok"] is True
+        routed = tmp_path / "diff_routed.kicad_pcb"
+        rr = nr.NativeRouter().route(str(out), str(routed),
+                                     workdir=str(tmp_path / "_r")).as_dict()
+        assert rr["ok"] is True and rr["unrouted_after"] == 0
+        b = pcbnew.LoadBoard(str(routed))
+        widths: dict = {}
+        for t in b.GetTracks():
+            if isinstance(t, pcbnew.PCB_TRACK) and not isinstance(t, pcbnew.PCB_VIA):
+                widths.setdefault(t.GetNetname(), set()).add(
+                    round(pcbnew.ToMM(t.GetWidth()), 3))
+        # 差分对净走 0.25mm 粗轨 (净类宽度被布线器真 honor)。
+        assert widths["USB_DP"] == {0.25}
+        assert widths["USB_DM"] == {0.25}
+        # 默认网不受 Diff 类影响, 走默认窄轨 (< 0.25)。
+        assert max(widths["GND"]) < 0.25
