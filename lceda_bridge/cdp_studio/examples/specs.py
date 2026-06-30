@@ -87,19 +87,26 @@ def build_mcu():
       · DSN 导出在高焊盘密度下的正确性
       · freerouting 在高扇出（GND 一域接 1 IC + 8 LED 阴极 + 去耦 + 上下拉）下的收敛
 
-    本会话硬学习的应用：单网扇出是双层无平面板的瓶颈，故 GND 按 IC **分两域**
-    （GND1/GND2），每域扇出压到 ~11；控制网（SHCP/STCP/级联/OE/MR）天然跨两片 IC，
-    每网恰好 2 焊盘可布。这是真实「移位寄存器扩 IO」板的接法。"""
+    本会话硬学习的应用:单网扇出是双层无平面板的瓶颈,故 GND 按 IC **分两域**
+    (GND1/GND2),每域扇出压到 ~11;控制网(SHCP/STCP/级联/OE/MR)天然跨两片 IC,
+    每网恰好 2 焊盘可布。这是真实「移位寄存器扩 IO」板的接法。
+
+    放置仍用 _grid 均匀铺开(非按域紧簇)。**反例实证(本会话)**:曾把 8 条 Q→R→LED
+    链按域**竖列紧簇**以图缩短本域 GND 连线,三连测得 DRC=0/37/51——不降反**剧增**。
+    教训:高脚数器件「就近扇出」要紧簇,但**双层无平面**的 LED 密集阴极汇流恰相反——
+    紧簇令 GND 汇流列与限流支路在两层里**互锁拥塞**,均匀铺开反给布线器让出回流空间。
+    故此板**保留 _grid**;其偶发不收敛(实测 ~八分之一)是 2 层无平面的**真实边界**,
+    据实存档而非以更差的紧簇粉饰(反者道之动:实验证伪即纳之,知止不殆)。"""
     comps = []
     for k in (1, 2):
         gnd = "GND%d" % k
         pins = {"16": "VCC", "8": gnd,
                 "11": "SHCP", "12": "STCP",   # 时钟两片共享 → 各 2 焊盘
                 "13": "OE", "10": "MR"}        # /OE /MR 两片共享
-        pins["14"] = "DIN" if k == 1 else "CHAIN"   # 串行入：U1 取 DIN，U2 取级联
+        pins["14"] = "DIN" if k == 1 else "CHAIN"   # 串行入:U1 取 DIN,U2 取级联
         if k == 1:
             pins["9"] = "CHAIN"                      # U1 的 Q7S → 级联到 U2.DS
-        # 8 路输出：Qj → 限流电阻 → LED → 本域 GND
+        # 8 路输出:Qj → 限流电阻 → LED → 本域 GND
         for j, qpin in enumerate(HC595_Q):
             qnet = "Q%d_%d" % (k, j)
             anode = "A%d_%d" % (k, j)
@@ -111,7 +118,7 @@ def build_mcu():
         comps.append({"ref": "U%d" % k, "query": IC595, "rotation": 0, "pins": pins})
         comps.append({"ref": "C%d" % k, "query": C, "rotation": 90,
                       "pins": {"1": "VCC", "2": gnd}})   # 每片去耦
-    # 上下拉：/OE 下拉到 GND1（使能），/MR 上拉到 VCC（释放复位）
+    # 上下拉:/OE 下拉到 GND1(使能),/MR 上拉到 VCC(释放复位)
     comps.append({"ref": "R_OE", "query": R, "rotation": 0,
                   "pins": {"1": "OE", "2": "GND1"}})
     comps.append({"ref": "R_MR", "query": R, "rotation": 0,
