@@ -629,6 +629,29 @@ rep.added_arcs, rep.arcs   # 重载实测
 `length_mm≈15.708`、线宽/层/网回读一致; 空 arcs / 缺三点之一 / 线宽≤0 / 板上无此网名 / 未知铜层 /
 缺板文件如实报错 `ok=False`。
 
+### 〇.33 通用图形图元 (`native_graphic.py`)
+
+> 反者道之动: 丝印图形、Logo 轮廓、机械标记、装配图辅助线、User 层批注、图形化禁布框这些"画给人看
+> 或给制造看"的几何, 本是人在 GUI 里一笔一笔画的, 但落到本源它们只是任意层上的 `pcbnew.PCB_SHAPE`
+> —— 线段/圆/矩形/多边形(可填充)。本层经子进程 (`_graphic_worker.py`) 在任意层批量落图元, 落盘后**重载
+> 实测**(按 UUID 与落盘前比对, 只认本次新增, 不把板框等既有图元算进来) 各图元类型/层/线宽/半径/长度/
+> 是否填充/多边形角点数 (反臆造)。与 〇.29/〇.32 (铜层走线)、〇.x `native_outline` (Edge.Cuts 板框)、
+> `native_silk` (文字) 分工互补 —— 本层是"画形"的本源原子。
+
+```python
+from kicad_origin.origin.native_graphic import NativeGraphic
+rep = NativeGraphic().apply("in.kicad_pcb", "out.kicad_pcb", shapes=[
+    {"type": "segment", "start": [0, 0], "end": [10, 0], "layer": "F.SilkS"},
+    {"type": "circle", "center": [20, 20], "radius_mm": 5, "layer": "F.SilkS"},
+    {"type": "rect", "start": [0, 30], "end": [15, 40], "layer": "Dwgs.User"},
+    {"type": "poly", "points": [[0, 50], [10, 50], [5, 60]], "filled": True}])
+rep.added_shapes, rep.shapes   # 重载实测(仅本次新增)
+```
+
+实测: 线段/圆(r=5)/矩形/填充三角形四件 → 重载 `added_shapes=4`、圆 `radius_mm≈5`、三角形
+`filled=True` 且 `points=3`、各层名回读一致; 空 shapes / 线宽≤0 / 未知层 / 未知类型 / 圆缺半径 /
+多边形<3角点 / 缺板文件如实报错 `ok=False`。
+
 ## 一、摸清本源: KiCAD 9.0.9 原生能力面 (VM 实测)
 
 | 能力 | KiCAD 原生本源 | 取代我此前的"从零造" |
