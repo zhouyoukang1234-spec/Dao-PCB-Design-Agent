@@ -84,6 +84,26 @@ rep = full_flow(spec, "out/")   # spec: {components:[{ref,lib,fp,x,y}], nets:{N:
 实测 (3 件 0805/0805C + 2 网 spec): build 3 器件 3 网 unrouted 3 → route 0 (+5 走线)
 → fab 出可投厂 zip, **全闭环 ok**。
 
+### 〇.4 原生网表驱动 · 真上游接入 (`native_netlist.py`)
+
+> 反者道之动: native_build 仍从手写 spec 起手 —— 非真上游。设计真本源在**原理图**:
+> `kicad-cli sch export netlist` 落为 KiCad 原生网表 (S-expr)。本层直接吃这份网表:
+> 解析器件 (ref/value/封装) 与网 (名/节点), **栅格自动布局**转成 native_build spec,
+> 接全闭环 —— 合成 `原理图 → 网表 → 建板 → 布线 → 出 fab` 的真闭环。
+> 反臆造: 网表未分配封装的器件如实报缺 (`missing_footprints`), 不静默编造; 可经
+> `fp_map`(ref→"lib:fp") 显式补封装 (即 KiCad "分配封装"那一步) 后再建。
+
+```python
+from kicad_origin.origin.native_netlist import (
+    parse_netlist, netlist_from_schematic, build_from_netlist)
+nl, net = netlist_from_schematic("design.kicad_sch")   # 真上游: 图→原生网表
+rep = build_from_netlist(net, "out/", fp_map={"U1": "Package_QFP:LQFP-48_7x7mm_P0.5mm"})
+```
+
+实测: 仓库物流车真原理图 → 50 件/62 网 (封装未分配 → 如实报 50 缺, **反臆造**);
+风扇控制器真原理图 → 6 件含封装 → 可建板; 完整 fixture (3×0805 + 4 网) →
+build unrouted 2 → route 0 (+4 走线) → fab zip, **全闭环 ok**。
+
 ## 一、摸清本源: KiCAD 9.0.9 原生能力面 (VM 实测)
 
 | 能力 | KiCAD 原生本源 | 取代我此前的"从零造" |
