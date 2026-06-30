@@ -967,6 +967,43 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
             out["lengths"] = lengths
         return out
 
+    def length_audit(self, constraints):
+        """**布线后**按约束量测真实布线长度,闭合「约束落库 → 是否被布线器兑现」这一环。
+
+        以 `pcb_Net.getNetLength` 取每网实测铜长(mil),对:
+          · diff_pairs {名:[P,N]}:报 P/N 实测长 + skew(|lP-lN|)——差分时序失配量;
+          · equal_length {名:[网…]}:报组内 max-min spread——等长组失配量。
+        诚实闭环:freerouting 当前**不做长度调谐(蛇形)**,故 skew/spread 通常非零;
+        本审计把「约束落了、但布线器未兑现」从口头判断变成**可量测的数字**,据实入档。"""
+        cons = constraints or {}
+        nets = set()
+        for pair in (cons.get("diff_pairs") or {}).values():
+            nets.update(pair)
+        for grp in (cons.get("equal_length") or {}).values():
+            nets.update(grp)
+        ln = {}
+        for nm in nets:
+            try:
+                ln[nm] = self._call("pcb_Net.getNetLength", nm, timeout=15)
+            except Exception:
+                ln[nm] = None
+
+        def _f(v):
+            return v if isinstance(v, (int, float)) else None
+        out = {"lengths_mil": ln, "diff_pairs": {}, "equal_length": {}}
+        for name, pair in (cons.get("diff_pairs") or {}).items():
+            vals = [_f(ln.get(n)) for n in pair]
+            skew = (abs(vals[0] - vals[1])
+                    if len(vals) == 2 and None not in vals else None)
+            out["diff_pairs"][name] = {"nets": pair, "lengths": vals,
+                                       "skew_mil": skew}
+        for name, grp in (cons.get("equal_length") or {}).items():
+            vals = [v for v in (_f(ln.get(n)) for n in grp) if v is not None]
+            out["equal_length"][name] = {
+                "nets": grp,
+                "spread_mil": (max(vals) - min(vals)) if len(vals) >= 2 else None}
+        return out
+
     def design_rules(self, raw=False):
         """当前 DRC 规则配置：{name, categories[, config]}。
 
@@ -1264,6 +1301,13 @@ return JSON.stringify({b64:btoa(s),size:u.length,name:f.name});}catch(e){return 
 
         # freerouting 路径已在自愈闭环里 DRC 收敛，直接复用其最终结果（避免二次发散）
         audit["steps"]["drc"] = ar["drc"] if ar else self.drc()
+        # 布线后长度审计：实测差分 skew / 等长组 spread（约束兑现度，据实入档）
+        if spec.get("constraints"):
+            try:
+                audit["steps"]["length_audit"] = self.length_audit(
+                    spec["constraints"])
+            except Exception as e:
+                audit["steps"]["length_audit"] = {"error": str(e)}
         # 闭环自审：每块板落审前先记一份真实板态快照（层/网络/规则）
         try:
             audit["review"] = {"layers": self.layer_info(),
