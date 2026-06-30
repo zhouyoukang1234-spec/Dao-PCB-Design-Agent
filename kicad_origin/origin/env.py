@@ -167,6 +167,38 @@ def find_kicad_python() -> Optional[Path]:
     return None
 
 
+def find_java() -> Optional[Path]:
+    """Find a Java runtime (freerouting 自动布线引擎所需)。"""
+    env = os.environ.get("JAVA_BIN")
+    if env and Path(env).exists():
+        return Path(env)
+    w = shutil.which("java")
+    return Path(w) if w else None
+
+
+_FREEROUTING_CANDIDATES: List[Path] = [
+    Path.home() / "freerouting.jar",
+    Path("/usr/share/freerouting/freerouting.jar"),
+    Path("/opt/freerouting/freerouting.jar"),
+    Path(r"C:\Program Files\freerouting\freerouting.jar"),
+]
+
+
+def find_freerouting() -> Optional[Path]:
+    """Find the freerouting jar (KiCad 本源外部自动布线引擎, DSN→SES)。
+
+    KiCad 自家不带自动布线器, 官方推荐 freerouting 经 Specctra DSN/SES 往返。
+    优先 env FREEROUTING_JAR, 再常见安装位; 找不到则调用方降级为 router_unavailable。
+    """
+    env = os.environ.get("FREEROUTING_JAR")
+    if env and Path(env).exists():
+        return Path(env)
+    for c in _FREEROUTING_CANDIDATES:
+        if c.exists():
+            return c
+    return None
+
+
 def has_kicad_install() -> bool:
     """Is KiCad installed and detectable?"""
     return KICAD_ROOT is not None
