@@ -277,6 +277,25 @@ rep.identical                                 # 封装/网表/走线计数全无
 `fp_added=['R3']`、`fp_moved` 含 R2 位移 20mm、`nets_added` 含 SIG; 删 C1 → `fp_removed`
 含 C1、`nets_removed` 含 GND。
 
+### 〇.14 一键可投厂审查 (`native_audit.py`)
+
+> 执一以为天下牧: 前面各层各司其职 (建板/布线/自愈/拼板/差分…), 投厂前要"执一"——一次性
+> 回答"这板能不能投"。本层不造新轮子, 而是**调度既有本源层**汇成裁决: `board_summary`
+> (pcbnew 实测板况) + `drc` (kicad-cli 真 DRC) + `from_board` (真板 BOM)。裁决规则透明可查,
+> 每条 blocker 如实列出 (反臆造, 绝不替用户拍板"差不多能投")。
+
+```python
+from kicad_origin.origin.native_audit import NativeAudit
+rep = NativeAudit().audit("board.kicad_pcb", "out/")
+rep.ready          # bool: 无阻断项 且 DRC 违规=0
+rep.blockers       # ["未布线 2", "DRC 违规 3", ...] 透明列报
+rep.markdown()     # 人类可读审查单 (并落盘 out/audit.json + audit.md)
+```
+
+阻断规则: 无封装 / 无 Edge.Cuts 板框 / 未布线 / DRC 违规 / DRC 未连接 任一非零即 not-ready。
+实测: 未布线板 → `ready=False` blockers `[未布线 2, DRC 未连接 2]` (DRC 违规 0, BOM 2 行 3 件);
+缺板文件如实报错; 布通后 (未布线 0 且未连接 0) → `ready=True`, blockers 空。
+
 ## 一、摸清本源: KiCAD 9.0.9 原生能力面 (VM 实测)
 
 | 能力 | KiCAD 原生本源 | 取代我此前的"从零造" |
