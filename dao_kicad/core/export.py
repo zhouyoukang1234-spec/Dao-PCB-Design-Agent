@@ -7,13 +7,24 @@ No abstractions — direct control over every export parameter.
 
 from __future__ import annotations
 
+import contextlib
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Optional
+
+
+def _natural_ref_key(ref: str) -> list:
+    """Sort key giving human/KiCad reference order: R1, R2, R10 (not R1, R10,
+    R2). Splits a designator into alternating text/number runs so the numeric
+    runs compare as integers."""
+    return [int(t) if t.isdigit() else t
+            for t in re.findall(r"\d+|\D+", ref)]
+
 
 try:
     import pcbnew
@@ -29,11 +40,36 @@ class ExportEngine:
             raise RuntimeError("pcbnew not available")
         self.board = board
 
+    @contextlib.contextmanager
+    def _basename_fallback(self, default: str = "board"):
+        """Give the board a sensible filename stem while emitting files.
+
+        Both the Gerber plotter and the Excellon writer derive each output
+        file's name from ``board.GetFileName()``. An in-memory board (exactly
+        what ``auto_design`` produces) has an empty filename, so the whole
+        package came out as ``-B_Cu.gbl`` / ``-PTH.drl`` — a leading dash that
+        many tools parse as a flag, and no project name. Temporarily set a stem
+        when one is missing, then restore it so we never mutate caller state.
+        """
+        src = self.board.GetFileName()
+        if src and Path(src).stem:
+            yield
+            return
+        self.board.SetFileName(f"{default}.kicad_pcb")
+        try:
+            yield
+        finally:
+            self.board.SetFileName(src)
+
     def gerbers(self, output_dir: Path, **opts) -> list[Path]:
         """Export complete Gerber set."""
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        with self._basename_fallback():
+            return self._plot_gerbers(output_dir, **opts)
+
+    def _plot_gerbers(self, output_dir: Path, **opts) -> list[Path]:
         plot_ctrl = pcbnew.PLOT_CONTROLLER(self.board)
         plot_opts = plot_ctrl.GetPlotOptions()
         plot_opts.SetOutputDirectory(str(output_dir))
@@ -102,10 +138,11 @@ class ExportEngine:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        writer = pcbnew.EXCELLON_WRITER(self.board)
-        writer.SetOptions(False, False, pcbnew.VECTOR2I(0, 0), False)
-        writer.SetFormat(metric)
-        writer.CreateDrillandMapFilesSet(str(output_dir), True, False)
+        with self._basename_fallback():
+            writer = pcbnew.EXCELLON_WRITER(self.board)
+            writer.SetOptions(False, False, pcbnew.VECTOR2I(0, 0), False)
+            writer.SetFormat(metric)
+            writer.CreateDrillandMapFilesSet(str(output_dir), True, False)
 
         return sorted(output_dir.glob("*.drl"))
 
@@ -136,7 +173,7 @@ class ExportEngine:
             seen[key]["refs"].append(ref)
 
         for key, data in sorted(seen.items()):
-            refs = " ".join(sorted(data["refs"]))
+            refs = " ".join(sorted(data["refs"], key=_natural_ref_key))
             lines.append(f'"{refs}","{data["value"]}","{data["footprint"]}",{len(data["refs"])}')
 
         output_path.write_text("\n".join(lines))
@@ -156,10 +193,14 @@ class ExportEngine:
                 continue
             pos = fp.GetPosition()
             side = "top" if fp.GetLayer() == pcbnew.F_Cu else "bottom"
+            # pcbnew's Y grows downward, but pick-and-place / CPL files (and
+            # KiCad's own `kicad-cli pcb export pos`) use the fab convention of
+            # Y growing upward. Emitting the raw pcbnew Y mirrors every part
+            # vertically — a silently mis-assembled board. Negate Y to match.
             lines.append(
                 f"{fp.GetReference()},{fp.GetValue()},"
                 f"{fp.GetFPID().GetUniStringLibItemName()},"
-                f"{pcbnew.ToMM(pos.x):.4f},{pcbnew.ToMM(pos.y):.4f},"
+                f"{pcbnew.ToMM(pos.x):.4f},{-pcbnew.ToMM(pos.y):.4f},"
                 f"{fp.GetOrientationDegrees():.1f},{side}"
             )
 

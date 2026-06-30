@@ -25,6 +25,30 @@ class TestExportEngine:
         # Should generate multiple gerber files (F.Cu, B.Cu, masks, silk, edge)
         assert len(files) > 5
 
+    def test_output_files_never_start_with_dash(self, sample_board, tmp_path):
+        """An in-memory board has no filename, so Gerber/Excellon writers used
+        to emit '-B_Cu.gbl' / '-PTH.drl' — a leading dash (parsed as a flag by
+        many tools) and no project name. Names must carry a real stem."""
+        engine = ExportEngine(sample_board)
+        names = [f.name for f in engine.gerbers(tmp_path / "g")]
+        names += [f.name for f in engine.drill(tmp_path / "d")]
+        assert names
+        for n in names:
+            assert not n.startswith("-"), n
+            assert n.startswith("board"), n
+
+    def test_saved_board_names_outputs_after_its_project(self, tmp_path):
+        """After save(), exports key their names off the project file, like
+        KiCad's Save-As — not the generic fallback stem."""
+        builder = BoardBuilder.new(copper_layers=2, width_mm=40, height_mm=30)
+        builder.add_nets("N")
+        builder.place("Resistor_SMD", "R_0402_1005Metric", "R1", 10, 10)
+        builder.save(tmp_path / "myproj.kicad_pcb")
+        drl = [f.name for f in ExportEngine(builder.board).drill(tmp_path / "d")]
+        assert drl
+        for n in drl:
+            assert n.startswith("myproj"), n
+
     def test_gerber_protel_extensions_match_layers(self, sample_board, tmp_path):
         """Each Gerber must carry the Protel extension of its OWN layer.
 
@@ -85,6 +109,18 @@ class TestExportEngine:
         assert "U1" in content
         assert "R1" in content
 
+    def test_bom_groups_refs_in_natural_order(self, tmp_path):
+        """Grouped references read in human/KiCad order (R1 R2 R10), not
+        lexicographic (R1 R10 R2). A real BOM never lists R10 before R2."""
+        builder = BoardBuilder.new(copper_layers=2, width_mm=80, height_mm=40)
+        for i in (1, 2, 3, 10, 11, 12):
+            builder.place("Resistor_SMD", "R_0402_1005Metric",
+                          f"R{i}", 5 + i * 3, 10, value="10k")
+        content = ExportEngine(builder.board).bom(tmp_path / "bom.csv").read_text()
+        refs = [ln for ln in content.splitlines() if ln.startswith('"R')][0]
+        refs = refs.split('"')[1]
+        assert refs == "R1 R2 R3 R10 R11 R12"
+
     def test_bom_honours_exclude_from_bom(self, sample_board, tmp_path):
         """A footprint flagged 'exclude from BOM' (mounting hole, fiducial,
         logo, test point) must not appear in the BOM."""
@@ -115,6 +151,42 @@ class TestExportEngine:
         content = pos_path.read_text()
         assert "Ref" in content
         assert "U1" in content
+
+    def test_placement_matches_kicad_cli_pos(self, sample_board, tmp_path):
+        """Our CPL coordinates must match KiCad's authoritative pos export.
+
+        pcbnew's Y grows downward; pick-and-place files use the fab Y-up
+        convention (KiCad's own `kicad-cli pcb export pos` negates Y). Emitting
+        the raw pcbnew Y mirrors every part vertically — a mis-assembled board
+        that presence-only tests never caught. Cross-check each part's X/Y
+        against kicad-cli."""
+        import csv
+        import shutil
+        import subprocess
+
+        if shutil.which("kicad-cli") is None:
+            pytest.skip("kicad-cli not available")
+
+        pcb = tmp_path / "b.kicad_pcb"
+        import pcbnew
+        pcbnew.SaveBoard(str(pcb), sample_board)
+
+        ours_path = ExportEngine(sample_board).placement(tmp_path / "ours.csv")
+        ours = {}
+        for row in csv.DictReader(ours_path.read_text().splitlines()):
+            ours[row["Ref"]] = (float(row["PosX"]), float(row["PosY"]))
+
+        ref_csv = tmp_path / "kicad.csv"
+        subprocess.run(
+            ["kicad-cli", "pcb", "export", "pos", "--format", "csv",
+             "--units", "mm", "--side", "both", "-o", str(ref_csv), str(pcb)],
+            capture_output=True, check=True)
+        for row in csv.DictReader(ref_csv.read_text().splitlines()):
+            ref = row["Ref"]
+            assert ref in ours, f"{ref} missing from our CPL"
+            ox, oy = ours[ref]
+            assert abs(ox - float(row["PosX"])) < 1e-3
+            assert abs(oy - float(row["PosY"])) < 1e-3
 
     def test_full_manufacturing(self, sample_board, tmp_path):
         engine = ExportEngine(sample_board)
