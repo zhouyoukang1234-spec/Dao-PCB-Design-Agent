@@ -512,6 +512,24 @@ rep.pads_matched, rep.sample_spoke_mm   # 重载实测
 > 注: `LocalThermalGapOverride` 在 9.0.9 SWIG 为 `optional<int>` 绑定异常(拒收 int), 故本层只下发
 > 连接模式与辐条宽两项可靠量, 不臆造热焊盘间隙。
 
+### 〇.27 本源分组 (`native_group.py`)
+
+> 反者道之动: 把一个功能块(电源/某子电路)的若干封装框成一组便于整体搬动/复用, 本是人在 GUI 里框选
+> 再 Ctrl+G 的, 但落到本源它只是一个 `PCB_GROUP` 持有若干成员引用。本层经子进程 (`_group_worker.py`)
+> 按封装 ref 把成员聚成命名 `PCB_GROUP` 挂到板上, 落盘后**重载实测**组数与各组成员数 (反臆造) ——
+> 这是"可复用功能块"的本源载体。
+
+```python
+from kicad_origin.origin.native_group import NativeGroup
+rep = NativeGroup().apply("in.kicad_pcb", "out.kicad_pcb", groups=[
+    {"name": "PWR", "refs": ["U1", "C1"]},
+    {"name": "SIG", "refs": ["R1", "R2"]}])
+rep.groups_added, rep.reload_groups   # 重载实测组数/成员
+```
+
+实测: 3 封装板建 `SIG`(R1,R2) 与 `PWR`(C1) 两组 → 重载 `reload_groups` 含两组、成员数分别 2/1;
+空 groups / refs 无命中 / 缺板文件如实报错 `ok=False`。
+
 ## 一、摸清本源: KiCAD 9.0.9 原生能力面 (VM 实测)
 
 | 能力 | KiCAD 原生本源 | 取代我此前的"从零造" |
