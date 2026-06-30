@@ -350,6 +350,35 @@ Safe Spacing:hs_spc` 三属性绑定确认，**DRC=0 CLEAN（1 试）**。
 - 心法：**同名「规则属性」未必同「生效机制」**——有的靠类层引用绑定，有的靠子规则上的默认标志。
   封装前须实测「这条规则到底怎么被选中」，否则会落库却不生效（最隐蔽的失败）。
 
+### 具名子规则不可夺默认（实测纠错·阳向全约束压测逼出）
+
+把全约束族（net-class × track/via/spacing 类规则 + 差分对 + 盲埋孔）压到一块 4 层板上一跑，
+DRC 报 40+ 条**电源网 `pwr_trk` 线过窄**——但违规对象竟是 **VCC/GND 等「未入任何类」的网络**。
+
+- **根因**：`add_track_rule`/`add_via_rule`/`add_spacing_rule`/`_add_form_rule` 都 `deepcopy` 既有
+  默认子规则当模板，**连 `isSetDefault:true` 一起克隆**。于是新建的具名规则（hs_trk/pwr_trk）也成了
+  「默认」——读回 `Track` 见 `copperThickness1oz/hs_trk/pwr_trk` **三个 isSetDefault=true**。引擎据
+  最后一个默认（pwr_trk）去要求**所有未绑类网络**，VCC/GND 遂被判线过窄。
+- **修正**：克隆后一律 `tmpl["isSetDefault"]=False`——具名子规则只供类引用、**绝不夺全局默认**；
+  原默认（copperThickness1oz）保持唯一默认，未绑类网络仍走它。这与上节 DP 的 `make_default` 同源：
+  DP **必须**夺默认才生效，track/via/spacing **必须不**夺默认才正确（一阴一阳）。
+
+### freerouting 只认全局线宽（实测·两段发现）
+
+修了 isSetDefault 后，`pwr_trk`(电源类 0.3mm 最小) 仍违规——这次是真·布线宽问题：
+
+1. JLCEDA `getDsnFile()` 把**所有网络导成统一默认线宽**（每个 `(class NET …)` 的 `(rule(width))`
+   都一样），**不**把网络类的自定义 Track 宽编进 DSN → 布线器按默认宽布、电源网过窄。
+2. 实测改 DSN：**只改某 `(class …)` 内线宽→布线宽不变；改 structure 级全局 `(rule(width))`→
+   全网 wire 同步变宽**。即 **freerouting 只认全局默认宽，无视各 class 内线宽**。
+
+- **对策**（`autoroute(net_widths_mm)` + `_dsn_inject_net_widths`）：从约束推出每网类宽，既写各
+  `(class …)`（前向兼容认类宽的布线器），**又把全局默认宽抬到所有目标宽的最大值**，freerouting 据此
+  把全网布到 ≥最严类宽，任何网络都不再违反最小线宽。代价：细线类也被加宽（密板需另权衡，或改用
+  布线后逐网改宽/换认类宽的布线器）。实测全约束 4 层板 **DRC=0 CLEAN**。
+- 心法：规则落库（阴）≠ 布线满足（阳）。外部布线器是另一套「认知」，须把 LCEDA 规则**翻译**成它认的
+  形态（且实测它到底认哪种），否则规则写对了、布出来仍违规。
+
 ## 一句话沉淀
 
 > 桌面离线版 = Web 编辑器层（`_EXTAPI_ROOT_` 同构）+ **本地化的账号层**（`/api/client/*`

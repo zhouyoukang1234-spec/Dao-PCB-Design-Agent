@@ -459,6 +459,25 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
                 for attr, prof in rules.items()}
         return out
 
+    @staticmethod
+    def _net_track_widths(constraints):
+        """从约束推出 {网络: Track 线宽mm}，供 DSN 线宽注入（让 freerouting 按类宽布线）。
+
+        链路：`net_classes[类]=网络[]` × `class_rules[类]["Track"]=具名子规则` ×
+        `track_rules[名]["default_mm"]=宽度`。无 Track 规则的类不注入（用默认宽）。"""
+        if not constraints:
+            return None
+        tracks = constraints.get("track_rules") or {}
+        classes = constraints.get("net_classes") or {}
+        out = {}
+        for cls, rules in (constraints.get("class_rules") or {}).items():
+            rule = rules.get("Track")
+            w = (tracks.get(rule) or {}).get("default_mm") if rule else None
+            if w:
+                for net in classes.get(cls, []):
+                    out[net] = w
+        return out or None
+
     def rule_profiles(self):
         """规则档全景（只读，喂差异化规则的下一步）。返回 {configs, current,
         categories}：configs=可选规则配置名（含 6 个 JLCPCB 内置档，高速板宜用
@@ -494,6 +513,7 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
         import copy as _copy
         tmpl = _copy.deepcopy(next(iter(track.values())))
         tmpl["editName"] = name
+        tmpl["isSetDefault"] = False  # 具名子规则只供类引用，绝不夺全局默认
         lo = min_mm if min_mm is not None else round(default_mm * 0.5, 4)
         hi = max_mm if max_mm is not None else round(default_mm * 10, 4)
         for layer in tmpl.get("form", {}).get("data", {}):
@@ -527,6 +547,7 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
         import copy as _copy
         tmpl = _copy.deepcopy(next(iter(vias.values())))
         tmpl["editName"] = name
+        tmpl["isSetDefault"] = False  # 具名子规则只供类引用，绝不夺全局默认
         f = tmpl.setdefault("form", {})
         f["viaOuterdiameterDefault"] = outer_mm
         f["viaOuterdiameterMin"] = (outer_min if outer_min is not None
@@ -549,7 +570,7 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
     @staticmethod
     def _blind_layer_order(layer, n_layers):
         """复刻客户端 `getBlindLayerOrder`：把物理层号映射成层叠顺序位次。
-        顶层(1)→1、底层(2)→层数 N、内层(16,17,…)→ i-15+2 = i-13（夹在顶底之间）。"""
+        顶层(1)→1、底层(2)→层数 N、内层 Inner1..(id 15,16,…)→ i-13（夹在顶底之间）。"""
         return 1 if layer == 1 else (n_layers if layer == 2 else layer - 13)
 
     def add_blind_buried_via_rule(self, start_layer, end_layer,
@@ -562,7 +583,8 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
         isSetDefault, table}`——`table` 是层对条目表，**默认空**（无样本可克隆）。每行 schema
         实测为 `{key, name, startLayer, endLayer, viaSizeRule}`：`name` 由客户端
         `resetBlindViaRuleName` 按层叠位次生成（排序后 `"r-a"`），层对以 `sort(start,end)`
-        去重（同对不可重复）。物理层号：顶层=1、底层=2、内层=16/17/…。`n_layers` 缺省时
+        去重（同对不可重复）。物理层号（实测 `getAllLayers`）：顶层=1、底层=2、内层 Inner1..
+        起于 **15**（15,16,…）。`n_layers` 缺省时
         以 `set_copper_layers` 读回的当前铜层数算位次（盲埋孔须 ≥3 层才有意义）。
 
         注意：本函数把层对规则落库（读回确认）。盲/埋孔的**布线级**实现需具备盲埋孔能力的
@@ -614,6 +636,7 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
         import copy as _copy
         tmpl = _copy.deepcopy(next(iter(spc.values())))
         tmpl["editName"] = name
+        tmpl["isSetDefault"] = False  # 具名子规则只供类引用，绝不夺全局默认
         for tbl in tmpl.get("tables", {}).values():
             tbl["content"] = [[clearance_mm for _ in row]
                               for row in tbl.get("content", [])]
@@ -637,6 +660,7 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
         import copy as _copy
         tmpl = _copy.deepcopy(next(iter(bucket.values())))
         tmpl["editName"] = name
+        tmpl["isSetDefault"] = False  # 具名子规则只供类引用，绝不夺全局默认
         tmpl.setdefault("form", {}).update(form_updates)
         bucket[name] = tmpl
         self._call("pcb_Drc.overwriteCurrentRuleConfiguration", cfg, timeout=30)
@@ -684,6 +708,7 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
         import copy as _copy
         tmpl = _copy.deepcopy(next(iter(bucket.values())))
         tmpl["editName"] = name
+        tmpl["isSetDefault"] = False  # 克隆默认会带 isSetDefault；下方 make_default 决定夺否
         for layer in tmpl.get("form", {}).get("strokeWidthTables", {}).get(
                 "data", {}).values():
             layer["minValue"] = round(width_mm * 0.5, 4)
@@ -932,18 +957,60 @@ return JSON.stringify({b64:btoa(s),size:u.length,name:f.name});}catch(e){return 
                 summary = line.split("INFO")[-1].strip()
         return {"ses": ses_path, "java": java, "summary": summary}
 
-    def autoroute(self, work_dir, passes=80):
+    # DSN 分辨率单位 mil（见 export 头 `(resolution mil 1000)`），1mil=0.0254mm
+    _MM_PER_MIL = 0.0254
+
+    @staticmethod
+    def _dsn_inject_net_widths(text, net_width_mil):
+        """把 DSN 线宽改成网络类 Track 规则宽度（mil），让 freerouting 按规则宽布线。
+
+        本源（实测·阳向压测逐层逼出，两段发现）：
+        ① JLCEDA `getDsnFile()` 把**所有网络**导成统一默认线宽（每个 `(class NET …)` 的
+           `(rule (width 默认))` 都一样），**不**把 DRC 网络类的自定义 Track 子规则宽度编进
+           DSN——故布线器一律按默认宽布线，回灌后较严的类（如电源 0.4mm）被 DRC 判「线过窄」。
+        ② **freerouting 只认 structure 级全局默认宽 `(rule(width …))`，无视各 `(class …)` 内的
+           线宽**（实测：改全局宽→所有 wire 同步变宽；只改类宽→布线宽不变）。
+
+        故此函数双管齐下：把各 `(class NET …)` 块写成该网络的类宽（前向兼容「认类宽」的布线器），
+        **并把 structure 级全局默认宽抬到所有目标宽的最大值**——freerouting 据此把全网布到
+        ≥最严类宽，使任何网络都不再违反其最小线宽规则（代价：细线类也被加宽，密板需另权衡）。"""
+        import re
+        def repl(m):
+            net = m.group(2)
+            w = net_width_mil.get(net)
+            return m.group(1) + (("%.4f" % w) if w else m.group(3)) + m.group(4)
+        pat = re.compile(r"(\(class\s+(\S+)\s+'[^']*'.*?\(rule\s.*?\(width\s+)"
+                         r"([\d.]+)(\))", re.DOTALL)
+        text = pat.sub(repl, text)
+        if net_width_mil:
+            wmax = max(net_width_mil.values())
+            text = re.sub(r"(\(rule\(width\s+)([\d.]+)(\)\))",
+                          lambda m: (m.group(1) + ("%.4f" % wmax) + m.group(3))
+                          if float(m.group(2)) < wmax else m.group(0), text)
+        return text
+
+    def autoroute(self, work_dir, passes=80, net_widths_mm=None):
         """官方 DSN→freerouting→SES 单发全自动布线（纯 RPC 编排）。返回审计含 drc。
 
         关键约束（本会话硬学习）：`importAutoRouteSesFile()` 是**追加**语义，且
         `clearRouting()` 在无头渲染层不解析（挂起）——故**不能在同一块板上反复重布**
         （两次布线叠加 → 异网交叠 Clearance Error）。所以单板单发；布线随机残留的
         收敛交给上层「整板重建重试」(build_until_clean) —— 每次都是一块全新的、无既有
-        布线的板，首次 import 永远不叠加，配合 freerouting 的运行间随机性必然收敛。"""
+        布线的板，首次 import 永远不叠加，配合 freerouting 的运行间随机性必然收敛。
+
+        `net_widths_mm`={网络: 线宽mm}：把网络类 Track 规则宽度注入 DSN（见
+        `_dsn_inject_net_widths`），让 freerouting 按类宽布线（否则较严的类回灌后被 DRC 判窄）。"""
         os.makedirs(work_dir, exist_ok=True)
         dsn = os.path.join(work_dir, "board.dsn")
         ses = os.path.join(work_dir, "board.ses")
         self.export_dsn(dsn)
+        if net_widths_mm:
+            w_mil = {n: (mm / self._MM_PER_MIL)
+                     for n, mm in net_widths_mm.items()}
+            with open(dsn, "r", encoding="utf-8") as f:
+                txt = f.read()
+            with open(dsn, "w", encoding="utf-8") as f:
+                f.write(self._dsn_inject_net_widths(txt, w_mil))
         fr = self.freeroute(dsn, ses, passes=passes)
         imported = self.import_ses(ses)
         self.save()
@@ -1004,7 +1071,9 @@ return JSON.stringify({b64:btoa(s),size:u.length,name:f.name});}catch(e){return 
 
         ar = None
         if router == "freerouting":
-            ar = self.autoroute(out_dir)
+            ar = self.autoroute(out_dir,
+                                net_widths_mm=self._net_track_widths(
+                                    spec.get("constraints")))
             audit["steps"]["autoroute"] = ar
         else:
             skip = (gnd,) if gnd else ()
