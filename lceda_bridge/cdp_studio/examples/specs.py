@@ -306,6 +306,27 @@ def build_bga():
             "components": comps}
 
 
+def build_skewlen():
+    """板⑪·诚实校验 length_audit:把一个等长组**故意做成不对称**——网 A 两脚近(短跨)、
+    网 B 两脚远(长跨),freerouting 走最短路必致两网实测铜长悬殊。length_audit 应报
+    **非零** spread,坐实该审计「量的是真实差异、非恒零」。这是对自家度量工具的反向验真。"""
+    comps = [
+        {"ref": "RA1", "query": R, "rotation": 0, "x": 0, "y": 0,
+         "pins": {"1": "NA", "2": "TA1"}},
+        {"ref": "RA2", "query": R, "rotation": 0, "x": 220, "y": 0,
+         "pins": {"1": "NA", "2": "TA2"}},      # NA 短跨 ~220mil
+        {"ref": "RB1", "query": R, "rotation": 0, "x": 0, "y": 320,
+         "pins": {"1": "NB", "2": "TB1"}},
+        {"ref": "RB2", "query": R, "rotation": 0, "x": 1600, "y": 320,
+         "pins": {"1": "NB", "2": "TB2"}},      # NB 长跨 ~1600mil
+    ]
+    return {"name": "DAO_SK1_SkewLen", "gnd_net": None,
+            "track_width": 10, "margin": 160, "copper_layers": 2,
+            "components": comps,
+            "constraints": {"net_classes": {"GRP": ["NA", "NB"]},
+                            "equal_length": {"EQ_AB": ["NA", "NB"]}}}
+
+
 def build_soicfan():
     """板⑨·跨几何泛化:在**双边** SOIC-16(74HC595)上跑同一 auto_fanout 原语。
     QFP 是四边、SOIC 是左右两排——若原语真无硬假设,应自动判出 L/R 两边逃逸并布通。
@@ -334,4 +355,5 @@ BOARDS = {
     "autofan": build_autofan,
     "soicfan": build_soicfan,
     "bga": build_bga,
+    "skewlen": build_skewlen,
 }
