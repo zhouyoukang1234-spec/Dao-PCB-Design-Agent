@@ -391,6 +391,28 @@ DRC 报 40+ 条**电源网 `pwr_trk` 线过窄**——但违规对象竟是 **VC
 为稳妥默认（布线时即保间距，实测 4/6 层 DRC=0）；逐网 `modify` 改宽留作「不可接受过度加宽」板型的
 可选优化，需配布线后 DRC 复核与间距回退（下轮实现）。
 
+## 全量逆流：EXTAPI 能力面一次性测绘（一劳永逸）
+
+不再零敲碎打——把嘉立创EDA Pro 本体的**整个** EXTAPI 声明面一次性逆流到位，作为后续深度融合的
+唯一事实源。
+
+- **来源**：客户端自带 TypeScript 声明 `…/pro-api/<ver>/api-types.d.ts`（权威、带完整类型与中文文档），
+  解析脚本 `extract_extapi_dts.py`（可对任意版本重生成）。
+- **规模**：**95** 个命名空间 / **749** 个可直接 RPC 调用的方法；另 **31** 个返回/数据类型（766 个链式方法）。
+  按模块：PCB 25ns/278、SCH 22ns/161、SYS 26ns/158、DMT 11ns/86、LIB 9ns/65、PNL 1、EDA 根。
+- **根映射（源码核实·非臆测）**：`EDA` 根类把每个命名空间以「类名首段小写」暴露
+  （`PCB_Drc`→`pcb_Drc`、`LIB_Device`→`lib_Device`…），与既有驱动 `_call('ns.method', …)` 完全一致。
+- **活体核对**：与运行期 `_EXTAPI_ROOT_` introspection（`_extapi_full_map.json`）交叉，**725/749** 方法
+  标注 live；并在桌面 CDP 上抽样 11 个跨模块只读方法**全部命中真实返回**（`sys_Environment.isWeb→False`
+  确认桌面端、`sys_Unit.getFrontendDataUnit→mil`）。**教训**：方法名必须取自目录、不可臆测——臆造名
+  一律 `NO_API`（伪名判别器），这正是「前識者，道之華也，而愚之首也」。
+- **产物**：`extapi_full_catalog.json`（机器可读，供高层绑定/包装器生成）+ `EXTAPI_REFERENCE.md`
+  （按模块分组的可读全表：每方法含完整签名+文档+live）。后续任何融合先查此表，杜绝重复测绘。
+- **能力面全景**：不止画板/布线/DRC——含原理图(sch_*)全套图元与**仿真**(sch_SimulationEngine)、网表；
+  制造数据(Gerber/钻孔/坐标/BOM 的 pcb_/sch_ManufactureData)；库(器件/封装/符号/3D/立创商城 cbb)；
+  工程/团队/工作区(dmt_*)；系统(文件系统/格式转换/对话框/存储/单位/快捷键/窗口 sys_*)。
+  即「人类在嘉立创里能点到的一切」均有声明级入口，已全量在册。
+
 ## 一句话沉淀
 
 > 桌面离线版 = Web 编辑器层（`_EXTAPI_ROOT_` 同构）+ **本地化的账号层**（`/api/client/*`
