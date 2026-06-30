@@ -121,9 +121,51 @@ def build_mcu():
             "track_width": 8, "margin": 200, "components": comps}
 
 
+def build_hs():
+    """板⑤·高速约束:双差分对(USB/ETH)+ 网络类 + 4 层 + 类线宽注入。
+
+    前四板验证的是「放置→绑网→布线→DRC→导出」的几何全链路;本板专门压测
+    **约束级深链路**——把 `apply_constraints` 真正接进全链:
+      · net_classes: HS(四条差分网) / PWR(VCC/GND) 归组;
+      · diff_pairs: USB(P/N)、ETH(P/N) —— 喂 DRC 差分规则;
+      · equal_length: 每对差分网时序匹配组;
+      · track_rules `HS_W`(0.2mm) + class_rules HS.Track→HS_W:
+        经 `_net_track_widths` 把类线宽注入 DSN,使 freerouting **按类宽布线**;
+      · copper_layers=4:给高速信号让出内层。
+    每条差分网挂 2 个串阻焊盘(扇出 2)保证可布;另加 VCC/GND 去耦。
+    验证点:约束全部读回落库 + DSN 注入类宽 + 4 层 freerouting 收敛 DRC=0。"""
+    comps = []
+    sig_nets = ["USB_P", "USB_N", "ETH_P", "ETH_N"]
+    for s in sig_nets:
+        # 每条信号网挂两个串阻(pin1=信号网, pin2=唯一端接点)→ 扇出 2、可布线
+        for t in (1, 2):
+            comps.append({"ref": "R_%s_%d" % (s, t), "query": R, "rotation": 0,
+                          "pins": {"1": s, "2": "%s_T%d" % (s, t)}})
+    # 双域去耦 VCC/GND
+    for i in range(1, 5):
+        comps.append({"ref": "C%d" % i, "query": C, "rotation": 90,
+                      "pins": {"1": "VCC", "2": "GND"}})
+    _grid(comps, cols=4, dx=500, dy=500)
+    return {
+        "name": "DAO_H1_DiffPairHS", "gnd_net": "GND",
+        "track_width": 8, "margin": 200, "copper_layers": 4, "components": comps,
+        "constraints": {
+            "net_classes": {"HS": sig_nets, "PWR": ["VCC", "GND"]},
+            "diff_pairs": {"USB": ["USB_P", "USB_N"],
+                           "ETH": ["ETH_P", "ETH_N"]},
+            "equal_length": {"USB_EQ": ["USB_P", "USB_N"],
+                             "ETH_EQ": ["ETH_P", "ETH_N"]},
+            "track_rules": {"HS_W": {"default_mm": 0.2,
+                                     "min_mm": 0.15, "max_mm": 0.4}},
+            "class_rules": {"HS": {"Track": "HS_W"}},
+        },
+    }
+
+
 BOARDS = {
     "simple": build_simple,
     "medium": build_medium,
     "complex": build_complex,
     "mcu": build_mcu,
+    "hs": build_hs,
 }
