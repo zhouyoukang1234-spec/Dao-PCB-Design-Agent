@@ -609,6 +609,26 @@ rep.added_zones, rep.zones   # 重载实测
 > 本源脾性(实测记录, 不臆造): 多边形若**未覆盖该网任何焊盘**, KiCad 填充期按孤岛移除, `is_filled=True`
 > 但 `filled_area_mm2=0` —— 局部铺铜须让轮廓压住目标网的焊盘/走线方留铜, 这是连通性本源, 非 bug。
 
+### 〇.32 显式圆弧布线 (`native_arc.py`)
+
+> 反者道之动: RF/微波线、阻抗可控的平滑弯、泪滴过渡、规避直角的美观弯角这些"我就要这里走一段弧"的诉求,
+> 本是人在 GUI 里一段段画弧的, 落到本源它只是若干 `pcbnew.PCB_ARC` 各持 start/mid/end 三点 + width/layer/net
+> (三点定弧: 起点 + 弧上中间点 + 终点唯一确定一段圆弧)。本层经子进程 (`_arc_worker.py`) 按三点批量落弧,
+> 落盘后**重载实测**新增弧数与各弧半径/圆心角/弧长/线宽/层/网 (反臆造) —— 这是"曲线布线"的本源原子,
+> 与 〇.29 `native_track` 的"直线段"互补成"直+弧"的完整同层走线面。
+
+```python
+from kicad_origin.origin.native_arc import NativeArc
+rep = NativeArc().apply("in.kicad_pcb", "out.kicad_pcb", arcs=[
+    {"start": [40, 40], "mid": [47.071, 42.929], "end": [50, 50],
+     "width_mm": 0.4, "layer": "F.Cu", "net": "GND"}])
+rep.added_arcs, rep.arcs   # 重载实测
+```
+
+实测: 四分之一圆弧(圆心(40,50)/半径10mm) → 重载 `added_arcs=1`、`radius_mm≈10`、`angle_deg≈90`、
+`length_mm≈15.708`、线宽/层/网回读一致; 空 arcs / 缺三点之一 / 线宽≤0 / 板上无此网名 / 未知铜层 /
+缺板文件如实报错 `ok=False`。
+
 ## 一、摸清本源: KiCAD 9.0.9 原生能力面 (VM 实测)
 
 | 能力 | KiCAD 原生本源 | 取代我此前的"从零造" |
