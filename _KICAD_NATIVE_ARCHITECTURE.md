@@ -296,6 +296,27 @@ rep.markdown()     # 人类可读审查单 (并落盘 out/audit.json + audit.md)
 实测: 未布线板 → `ready=False` blockers `[未布线 2, DRC 未连接 2]` (DRC 违规 0, BOM 2 行 3 件);
 缺板文件如实报错; 布通后 (未布线 0 且未连接 0) → `ready=True`, blockers 空。
 
+### 〇.15 参数化板框 + 安装孔 (`native_outline.py`)
+
+> 反者道之动: 板框与安装孔本是人在 GUI 里一笔一笔手绘的活, 但落到本源它们只是板文件里的
+> `PCB_SHAPE` (Edge.Cuts) 与 `PAD_ATTRIB_NPTH` 焊盘。本层把"给人画的外形"改造成可编程下发:
+> 矩形/圆角矩形板框 (圆角=4 直边+4 角弧)、四角自动或显式坐标打安装孔, 经子进程
+> (`_outline_worker.py`) 在 pcbnew 内重画落盘, 再**重载实测**外框尺寸/边数/孔数 (反臆造)。
+
+```python
+from kicad_origin.origin.native_outline import NativeOutline
+rep = NativeOutline().apply("in.kicad_pcb", "out.kicad_pcb",
+                            width_mm=50, height_mm=30,
+                            shape="rounded", corner_r_mm=3,
+                            hole_dia_mm=3.2)   # 四角自动 4 孔
+rep.size_mm   # 重载实测外框包围盒 [w,h]
+rep.edge_items  # 矩形=1; 圆角=8 (4 边+4 弧)
+rep.holes     # NPTH 安装孔数 (重载实测)
+```
+
+实测: 50×30 矩形 + 四角 Ø3.2 → `edge_items=1, holes=4, size≈[50,30]`;
+40×40 圆角 r=5 居中 + 中心 Ø4 孔 → `edge_items=8, holes=1`; 尺寸非正/缺板文件如实报错。
+
 ## 一、摸清本源: KiCAD 9.0.9 原生能力面 (VM 实测)
 
 | 能力 | KiCAD 原生本源 | 取代我此前的"从零造" |
