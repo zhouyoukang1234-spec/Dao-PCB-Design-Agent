@@ -41,28 +41,48 @@ TOP, BOTTOM, MULTI, OUTLINE = 1, 2, 11, 11
 
 _FREEROUTING_JAR = os.path.expanduser(
     "~/Dao-PCB-Design-Agent/dao_kicad/tools/freerouting.jar")
+# freerouting 2.2.4 是 Java25 字节码（class file 69.0）→ 低版本 JRE 起不来。
+_MIN_JAVA = 25
+# 安装器把 Temurin JDK 装在 jar 同级的 jdk/ 下——这是首选且确定可用的运行时。
+_BUNDLED_JAVA = os.path.join(os.path.dirname(_FREEROUTING_JAR), "jdk", "bin",
+                             "java")
+
+
+def _java_major(p):
+    try:
+        out = subprocess.run([p, "-version"], capture_output=True,
+                             text=True).stderr
+        return int(out.split('"')[1].split(".")[0])
+    except Exception:
+        return 0
 
 
 def _find_java():
-    """挑能跑 freerouting 的最高版本 JDK（freerouting 2.2.x = Java25 字节码）。"""
-    env = os.environ.get("FREEROUTING_JAVA")
-    if env and os.path.isfile(env):
-        return env
-    cands = []
-    for pat in ("/home/*/jdk*/bin/java", "/usr/lib/jvm/*/bin/java",
-                "/opt/*/bin/java"):
-        cands += glob.glob(pat)
+    """挑**能真正跑 freerouting** 的 JDK（≥Java25）。
 
-    def major(p):
-        try:
-            out = subprocess.run([p, "-version"], capture_output=True,
-                                 text=True).stderr
-            v = out.split('"')[1]
-            return int(v.split(".")[0])
-        except Exception:
-            return 0
-    cands = [c for c in cands if major(c) > 0]
-    return max(cands, key=major) if cands else "java"
+    本源教训：旧实现的 glob 只扫 `/home/*/jdk*`、`/usr/lib/jvm/*`、`/opt/*`，
+    **够不到仓库自带的 `dao_kicad/tools/jdk/bin/java`**，于是悄悄退回系统 Java17
+    → freerouting 抛 `UnsupportedClassVersionError` 不产 SES，链路却拿旧 SES 续命
+    （见 freeroute 的新鲜度校验）→ 假性「布线回归」。故此处：①优先自带 JDK；
+    ②候选必须 major≥25；③一个都不达标就**显式报错**，绝不静默退回低版本。
+    """
+    env = os.environ.get("FREEROUTING_JAVA")
+    if env and os.path.isfile(env) and _java_major(env) >= _MIN_JAVA:
+        return env
+    if os.path.isfile(_BUNDLED_JAVA) and _java_major(_BUNDLED_JAVA) >= _MIN_JAVA:
+        return _BUNDLED_JAVA
+    cands = []
+    for pat in ("/home/*/jdk*/bin/java", "/home/*/**/jdk/bin/java",
+                "/usr/lib/jvm/*/bin/java", "/opt/*/bin/java"):
+        cands += glob.glob(pat, recursive=True)
+    cands = [(c, _java_major(c)) for c in cands]
+    cands = [(c, m) for c, m in cands if m >= _MIN_JAVA]
+    if cands:
+        return max(cands, key=lambda cm: cm[1])[0]
+    raise DaoRpcError(
+        "找不到 ≥Java%d 的运行时跑 freerouting（自带 %s 缺失？跑 "
+        "dao_kicad/tools/install_freerouting.py 重装，或设 FREEROUTING_JAVA）"
+        % (_MIN_JAVA, _BUNDLED_JAVA))
 
 
 class DaoRpcError(RuntimeError):
@@ -484,11 +504,18 @@ return JSON.stringify({b64:btoa(s),size:u.length,name:f.name});}catch(e){return 
         的本源闭环：把最难的布线交给久经考验的布线器，结果经官方 RPC 无缝回灌。
         `-Djava.awt.headless=true` 必带：否则有 DISPLAY 时 freerouting 走 AWT/GUI 会卡死。"""
         java = _find_java()
+        # 本源教训：先删旧 SES。否则 freerouting 这次没产出（如 JRE 不匹配启动失败），
+        # `os.path.exists` 仍为真 → 静默回灌**上一轮的陈旧 SES**（网络对不上 →
+        # Connection/Clearance Error 假性回归）。删后再以「新鲜产出」为成功判据。
+        if os.path.exists(ses_path):
+            os.remove(ses_path)
         cmd = [java, "-Djava.awt.headless=true", "-jar", _FREEROUTING_JAR,
                "-de", dsn_path, "-do", ses_path, "-mp", str(passes)]
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        if not os.path.exists(ses_path):
-            raise DaoRpcError("freeroute produced no SES:\n%s" % r.stderr[-400:])
+        if not os.path.exists(ses_path) or os.path.getsize(ses_path) == 0:
+            raise DaoRpcError(
+                "freeroute 未产出 SES（java=%s）：\n%s"
+                % (java, (r.stderr or r.stdout)[-400:]))
         # freerouting 把统计打到 stdout：抓「session completed: ... unrouted nets」整句
         summary = None
         for line in (r.stdout + "\n" + r.stderr).splitlines():
@@ -576,6 +603,12 @@ return JSON.stringify({b64:btoa(s),size:u.length,name:f.name});}catch(e){return 
 
         # freerouting 路径已在自愈闭环里 DRC 收敛，直接复用其最终结果（避免二次发散）
         audit["steps"]["drc"] = ar["drc"] if ar else self.drc()
+        # 闭环自审：每块板落审前先记一份真实板态快照（层/网络/规则）
+        try:
+            audit["review"] = {"layers": self.layer_info(),
+                               "rules": self.design_rules()}
+        except Exception as e:
+            audit["review"] = {"error": str(e)}
         audit["exports"] = {
             "gerber": self.export_gerber(out_dir + "/"),
             "bom": self.export_bom(out_dir + "/"),

@@ -78,6 +78,30 @@ python dao_rpc_driver.py caps     # 能力面：实测 93 命名空间 / 702 方
 Layers Board)"[Spacing/Physics/Plane/Expansion], drc:0}`。**能力面盘点 = 93 ns /
 702 method**——「人能在软件里点的模块」尽数在册，后续可据此把更多模块逐一纳入稳定 RPC。
 
+## 稳定性本源修复：freerouting 的「JRE 静默降级 + 陈旧 SES 续命」复合坑
+
+实践中「最简板突然 DRC=3、中板 DRC=32」的假性回归，根因是两个相互掩盖的坑：
+
+1. **`_find_java()` 够不到自带 JDK** → 静默退回系统 Java17。glob 只扫
+   `/home/*/jdk*`、`/usr/lib/jvm/*`、`/opt/*`，**漏了仓库自带的
+   `dao_kicad/tools/jdk/bin/java`**。freerouting 2.2.4 是 Java25 字节码
+   （class file 69.0），Java17 直接 `UnsupportedClassVersionError` 起不来。
+2. **`freeroute()` 拿陈旧 SES 续命** → 上一步不产新 SES，但旧 `board.ses`
+   还在，`os.path.exists` 为真 → **静默回灌上一轮（别的板）的布线**，网络对不上
+   → Connection/Clearance Error。`board.dsn` 是新的、`board.ses` 是上一会话的
+   （时间戳一眼可辨）即铁证。
+
+**本源解**（直指「越来越稳定/准确」）：
+- `_find_java()`：①优先自带 `dao_kicad/tools/jdk`；②候选必须 `major≥25`；
+  ③一个都不达标就**显式报错**，绝不静默退回低版本。
+- `freeroute()`：跑前**先删旧 SES**，跑后以「新鲜且非空产出」为成功判据，
+  失败即带 `java=` 与 stderr 显式抛错——让坑**响**而不是**默**。
+- 修复后复跑：simple 1 试 DRC=0、medium 1 试 DRC=0，freerouting summary
+  正常打印「Auto-router session completed … unrouted nets」。
+
+> 教训：**静默降级 + 残留续命**是最毒的组合——管线看似在跑、产物看似存在，
+> 实则全错。凡「挑运行时 / 复用产物」处，都要把「不达标」与「非新鲜」变成显式失败。
+
 ## 一句话沉淀
 
 > 桌面离线版 = Web 编辑器层（`_EXTAPI_ROOT_` 同构）+ **本地化的账号层**（`/api/client/*`
