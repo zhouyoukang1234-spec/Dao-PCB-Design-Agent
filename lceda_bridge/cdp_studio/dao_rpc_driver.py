@@ -416,11 +416,13 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
             "length_rules":{名: {"min_mm":, "max_mm":}},
             "length_tolerance_rules":{名: {"tolerance_mm":}},
             "diff_pair_rules":{名: {"width_mm":, "gap_mm":}},
+            "blind_via_rules":[{"start_layer":, "end_layer":,
+                                "via_size_rule":}],
             "class_rules": {类名: {属性: 具名子规则}}}。返回落库回执。"""
         out = {"net_classes": {}, "diff_pairs": {}, "equal_length": {},
                "track_rules": {}, "via_rules": {}, "spacing_rules": {},
                "length_rules": {}, "length_tolerance_rules": {},
-               "diff_pair_rules": {}, "class_rules": {}}
+               "diff_pair_rules": {}, "blind_via_rules": [], "class_rules": {}}
         for nm, nets in (constraints.get("net_classes") or {}).items():
             out["net_classes"][nm] = self.net_class(nm, nets)
         for nm, pair in (constraints.get("diff_pairs") or {}).items():
@@ -446,6 +448,10 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
         for nm, p in (constraints.get("diff_pair_rules") or {}).items():
             out["diff_pair_rules"][nm] = self.add_diff_pair_rule(
                 nm, p["width_mm"], p["gap_mm"])
+        for p in (constraints.get("blind_via_rules") or []):
+            out["blind_via_rules"].append(self.add_blind_buried_via_rule(
+                p["start_layer"], p["end_layer"],
+                p.get("via_size_rule", "")))
         # 差异化规则须在网络类已建之后落（指向具名子规则）
         for cls, rules in (constraints.get("class_rules") or {}).items():
             out["class_rules"][cls] = {
@@ -539,6 +545,58 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
         if name not in back:
             raise DaoRpcError("add_via_rule(%s) 未落库" % name)
         return {"name": name, "outer": outer_mm, "inner": inner_mm}
+
+    @staticmethod
+    def _blind_layer_order(layer, n_layers):
+        """复刻客户端 `getBlindLayerOrder`：把物理层号映射成层叠顺序位次。
+        顶层(1)→1、底层(2)→层数 N、内层(16,17,…)→ i-15+2 = i-13（夹在顶底之间）。"""
+        return 1 if layer == 1 else (n_layers if layer == 2 else layer - 13)
+
+    def add_blind_buried_via_rule(self, start_layer, end_layer,
+                                  via_size_rule="", n_layers=None):
+        """新增一条**盲埋孔层对规则**（Physics/Blind/Buried Via，table 态）并应用到当前 PCB。
+        声明「`start_layer`↔`end_layer` 这对层之间允许打盲/埋孔」，可选绑定某具名过孔尺寸
+        子规则（`via_size_rule`，空串=用默认过孔规则）。
+
+        本源（读 `ui.js`/`pcb3dview.js` 实证）：`blindVia` 子规则节点为 `{editName,
+        isSetDefault, table}`——`table` 是层对条目表，**默认空**（无样本可克隆）。每行 schema
+        实测为 `{key, name, startLayer, endLayer, viaSizeRule}`：`name` 由客户端
+        `resetBlindViaRuleName` 按层叠位次生成（排序后 `"r-a"`），层对以 `sort(start,end)`
+        去重（同对不可重复）。物理层号：顶层=1、底层=2、内层=16/17/…。`n_layers` 缺省时
+        以 `set_copper_layers` 读回的当前铜层数算位次（盲埋孔须 ≥3 层才有意义）。
+
+        注意：本函数把层对规则落库（读回确认）。盲/埋孔的**布线级**实现需具备盲埋孔能力的
+        布线器；freerouting 仅做通孔，故此规则的几何满足是更深前沿（如实记录）。"""
+        cfg = (self._call("pcb_Drc.getCurrentRuleConfiguration", timeout=25)
+               or {}).get("config", {})
+        bucket = cfg.get("Physics", {}).get("Blind/Buried Via", {})
+        if not bucket:
+            raise DaoRpcError("当前配置无 Physics/Blind/Buried Via")
+        sub = next(iter(bucket.values()))
+        tbl = sub.setdefault("table", [])
+        if n_layers is None:
+            n_layers = self._call("pcb_Layer.getTheNumberOfCopperLayers",
+                                  timeout=15) or 4
+        r = self._blind_layer_order(start_layer, n_layers)
+        a = self._blind_layer_order(end_layer, n_layers)
+        nm = "%d-%d" % (r, a) if r < a else "%d-%d" % (a, r)
+        pair = tuple(sorted((start_layer, end_layer)))
+        if any(tuple(sorted((row.get("startLayer"), row.get("endLayer")))) == pair
+               for row in tbl):
+            raise DaoRpcError("盲埋孔层对 %s 已存在（同对不可重复）" % (pair,))
+        tbl.append({"key": len(tbl), "name": nm,
+                    "startLayer": start_layer, "endLayer": end_layer,
+                    "viaSizeRule": via_size_rule})
+        self._call("pcb_Drc.overwriteCurrentRuleConfiguration", cfg, timeout=30)
+        back = ((self._call("pcb_Drc.getCurrentRuleConfiguration", timeout=25)
+                 or {}).get("config", {}).get("Physics", {})
+                .get("Blind/Buried Via", {}))
+        bsub = next(iter(back.values())) if back else {}
+        if not any(tuple(sorted((row.get("startLayer"), row.get("endLayer"))))
+                   == pair for row in bsub.get("table", [])):
+            raise DaoRpcError("add_blind_buried_via_rule(%s) 未落库" % (pair,))
+        return {"pair": [start_layer, end_layer], "name": nm,
+                "via_size_rule": via_size_rule}
 
     def add_spacing_rule(self, name, clearance_mm):
         """新增一条**自定义安全间距子规则**（Spacing/Safe Spacing）并应用到当前 PCB。
