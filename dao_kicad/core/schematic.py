@@ -104,33 +104,41 @@ class SymbolParser:
             return None
 
         sym = Symbol(library=library, name=symbol_name)
+        sym.pins = self._parse_pins(block)
 
-        # Extract pins
-        # Format: (pin TYPE STYLE (at X Y ANGLE) (length L) (name "NAME") (number "NUM"))
-        pin_pattern = re.compile(
-            r'\(pin\s+(\w+)\s+\w+\s*'  # type and style
-            r'(?:\(at\s+([\d.-]+)\s+([\d.-]+)[^)]*\))?\s*'  # optional position
-            r'(?:\(length\s+[\d.-]+\))?\s*'  # optional length
-            r'(?:\(name\s+"([^"]*)"\s*(?:\([^)]*\))?\s*\))?\s*'  # name
-            r'(?:\(number\s+"([^"]*)"\s*(?:\([^)]*\))?\s*\))?'  # number
-        )
-
-        for m in pin_pattern.finditer(block):
-            pin_type = m.group(1)
-            x = float(m.group(2)) if m.group(2) else 0
-            y = float(m.group(3)) if m.group(3) else 0
-            name = m.group(4) or ""
-            number = m.group(5) or ""
-
-            sym.pins.append(Pin(
-                number=number,
-                name=name,
-                pin_type=pin_type,
-                x=x,
-                y=y,
-            ))
+        # Derived symbols carry no pins of their own — they (extends "Parent").
+        # Resolve the parent so e.g. STM32F103C8Tx inherits C8Tx's pins.
+        if not sym.pins:
+            ext = re.search(r'\(extends\s+"([^"]+)"', block)
+            if ext:
+                parent = self.parse_symbol(library, ext.group(1))
+                if parent:
+                    sym.pins = parent.pins
 
         return sym
+
+    def _parse_pins(self, block: str) -> list:
+        """Extract pins from a symbol block. Each pin is its own balanced
+        ``(pin ...)`` sub-block; name/number/at are pulled from inside it so
+        nested ``(effects (font ...))`` can't derail the parse (the old
+        single monolithic regex dropped every pin number)."""
+        pins = []
+        head = re.compile(r'\(pin\s+(\w+)\s+\w+')
+        for m in head.finditer(block):
+            sub = self._extract_balanced(block, m.start())
+            if not sub:
+                continue
+            name_m = re.search(r'\(name\s+"([^"]*)"', sub)
+            num_m = re.search(r'\(number\s+"([^"]*)"', sub)
+            at_m = re.search(r'\(at\s+([\d.-]+)\s+([\d.-]+)', sub)
+            pins.append(Pin(
+                number=num_m.group(1) if num_m else "",
+                name=name_m.group(1) if name_m else "",
+                pin_type=m.group(1),
+                x=float(at_m.group(1)) if at_m else 0,
+                y=float(at_m.group(2)) if at_m else 0,
+            ))
+        return pins
 
     def search_symbols(self, query: str) -> list[tuple[str, str]]:
         """Search all symbol libraries for a component."""
