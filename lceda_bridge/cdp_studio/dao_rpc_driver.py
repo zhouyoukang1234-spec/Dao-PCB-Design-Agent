@@ -500,19 +500,31 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
 
     # ---------- DRC ----------
     def drc(self, strict=True, timeout=90):
-        """结构化 DRC：返回 {total, by_type, violations}。total=0 即干净。"""
+        """结构化 DRC:返回 {total, by_type, by_net, violations}。total=0 即干净。
+
+        每违规附 **net + pos(x,y)**(实测 `pcb_Drc.check` 的 err 携 `net`/`pos`,
+        子组名亦是网名)。`by_net` 把『DRC=N 某型错』变成**可定位到具体网与坐标**的诊断清单
+        ——如 mcu 偶发不收敛时,by_net 立现是哪一域哪些网(如 GND2:10)未布通,据此对症。"""
         tree = self._call("pcb_Drc.check", strict, False, True, timeout=timeout)
         viol = []
         for cat in (tree or []):
             for sub in (cat.get("list") or []):
+                snet = sub.get("name")
                 for err in (sub.get("list") or []):
+                    pos = err.get("pos") or {}
                     viol.append({"rule": err.get("ruleName"),
                                  "type": err.get("errorType"),
-                                 "layer": err.get("layer")})
-        by = {}
+                                 "layer": err.get("layer"),
+                                 "net": err.get("net") or snet,
+                                 "pos": ([pos.get("x"), pos.get("y")]
+                                         if isinstance(pos, dict) and pos else None)})
+        by, by_net = {}, {}
         for e in viol:
             by[e["type"]] = by.get(e["type"], 0) + 1
-        return {"total": len(viol), "by_type": by, "violations": viol}
+            if e["net"]:
+                by_net[e["net"]] = by_net.get(e["net"], 0) + 1
+        return {"total": len(viol), "by_type": by, "by_net": by_net,
+                "violations": viol}
 
     def set_copper_layers(self, n):
         """设板铜层数（2/4/6…）。`pcb_Layer.setTheNumberOfCopperLayers` 实测可用。
