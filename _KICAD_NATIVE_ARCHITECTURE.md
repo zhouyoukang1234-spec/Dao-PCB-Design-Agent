@@ -158,6 +158,49 @@ rep = run_flow("design.net", "out/")     # netlist → 建板 → 自愈闸 → 
 实测 (divider.net, 3 件/4 网): build (2 飞线) → heal (DRC 0 违规 / 飞线 2→0) → fab zip,
 `_origin` 如实溯源 (3 件全可放, 0 缺封装), **全流程 ok**。
 
+### 〇.8 本源物料与装配 (`native_bom.py` / `native_assembly.py`)
+
+> 制板出 gerber 只是裸板; **采购**要 BOM、**贴片**要坐标、**评审**要 3D 实体。
+> - `native_bom`: 两条本源路径取 BOM —— ① `from_board` 经子进程 (`_bom_worker`) 用 pcbnew
+>   读每枚封装真 ref/value/footprint, 按 (value, footprint) 归并 (KiCad "Grouped By Value"
+>   同义, 引脚号自然序 R2<R10); ② `from_schematic` 经 `kicad-cli sch export bom` 直出真
+>   原理图 BOM。读不到即报错, 不编行。
+> - `native_assembly`: 把贴片坐标 (`export_pos`) + 3D STEP/GLB (`pcb export step|glb`,
+>   catalog-backed) + BOM 一并打成**装配包 zip**。
+
+```python
+from kicad_origin.origin.native_bom import NativeBom
+from kicad_origin.origin.native_assembly import NativeAssembly
+NativeBom().from_board("board.kicad_pcb")            # 真板 → 归并 BOM
+NativeAssembly().assemble("board.kicad_pcb", "out/") # pos+step+glb+bom → zip
+```
+
+实测: 真板 4 件 → BOM 归并 (R1+R2 同值合 qty2 / R10 异值另起, 3 物料/4 总数); 真原理图
+simple_fan_controller → `sch export bom` 出 5 行 (330R ×2 归并); 装配包 zip 含
+positions.csv+board.step+board.glb+bom.csv, **全产出 ok**。
+
+### 〇.9 本源覆铜与层叠 (`native_zone.py` / `native_stackup.py`)
+
+> 信号走线只是骨架; **覆铜回流地**靠 zone pour、**高速/多层**靠层叠。皆用 pcbnew 真改板。
+> - `native_zone`: 子进程 (`_layer_worker` op=pour) 用本源 `pcbnew.ZONE` + `ZONE_FILLER`
+>   为指定铜层+网络铺一块覆盖板框 (Edge.Cuts 包络 + margin) 的覆铜区, **真浇灌**后落盘,
+>   重载实测每区填充面积 (mm²)。网络/铜层不存在即报错, 绝不乱接网 (反臆造)。
+> - `native_stackup`: 子进程 (op=stackup) 用 `BOARD.SetCopperLayerCount` 真升降层数
+>   (2→4→6, 须 >=2 偶数), 落盘后重载实测启用铜层名回报。
+
+```python
+from kicad_origin.origin.native_zone import NativeZone
+from kicad_origin.origin.native_stackup import NativeStackup
+NativeZone().pour("b.kicad_pcb", "o.kicad_pcb",
+                  zones=[{"layer": "F.Cu", "net": "GND"},
+                         {"layer": "B.Cu", "net": "GND"}])
+NativeStackup().set_copper_layers("b.kicad_pcb", "o.kicad_pcb", 4)
+```
+
+实测: 真板双面铺 GND → 两区均 is_filled, 填充面积 366/389 mm² (真浇灌非估算);
+未知网络 `NOPE`/未知层 `In9.Cu`/奇数层 3 均如实拒做; 2→4 层后启用铜层
+`['F.Cu','In1.Cu','In2.Cu','B.Cu']`。
+
 ## 一、摸清本源: KiCAD 9.0.9 原生能力面 (VM 实测)
 
 | 能力 | KiCAD 原生本源 | 取代我此前的"从零造" |
