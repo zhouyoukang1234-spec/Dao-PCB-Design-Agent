@@ -91,15 +91,18 @@
 - **`auto_fanout(designator, pad_net, ...)`** — 几何驱动**通用扇出**:读目标器件**真实焊盘 (x,y)**(`pad_xy`)→算中心→每脚按 `|dx|`vs`|dy|` 主轴定逃逸边(右/左/上/下)、同侧沿边排序逐颗递增 `depth_step` 错位→串件落「脚垂直对齐线 × 外延深度」。**不对任何封装引脚布局做硬假设**。已在 QFP(四边)/ SOIC(双边)/ BGA(栅格外圈)三类几何验证 DRC=0 通用。谱里器件声明 `auto_fanout={脚:网}` 即接入。
 - **`place_and_net(components, chunk=10)`** — 按 `chunk` 件**分批多发 eval**:治大板(如 48 脚 QFP ~120 次绑网)单发破 90s `NO_RESULT`,对任意规模线性可扩。
 - **`length_audit(constraints)`** — 布线后以 `pcb_Net.getNetLength` 量实测铜长,报 diff_pair **skew**(`|lP-lN|`)/ equal_length **spread**(`max-min`),据实入 `audit.steps.length_audit`。把「约束兑现度」变成可量测数字。
+- **`length_tune(constraints, tol=8, max_passes=6)`** — **布线后原位蛇形调长**,把 freerouting「不调长」的边界转成能力。以组内最长网为基准,给较短网在其**当前最长直段**删原段→同端点画**朝板内的曼哈顿蛇形**(端点不动故电气连续不破)。**闭环迭代**:蛇形几何长 ≠ `getNetLength` 实测增量,故每趟重测按真实 deficit 续补、并自然落到新的最长段(多段分摊),直到 spread≤tol 或无进展。tune 板实证 spread **300→0.0mil、2 趟、DRC=0 CLEAN**。spec 置 `length_tune:True` 即在 build 管线布线后自动调长(改铜后 DRC 重测)。
+- **`drc()` 结构化** — 每违规附 `net`+`pos(x,y)`,返回 `by_net` 把「DRC=N 某型错」变可定位到具体网与坐标的清单(如 mcu 偶发不收敛立现是哪域哪些网未布通)。
 - **`_eval(..., retries=2)`** — 对**瞬时** `NO_RESULT`(CDP 偶发空结果)有限重试 + 重连编辑器会话;真错误/超时如实抛,不掩盖。
 
 ### 本源教训(实证)
 - **几何优先**:高脚数器件能否一次布通,命门在**放置质量**而非布线器。qfp 实证——detached 栅格放 32 扇出残留 8 Connection Error;改「就近同侧逃逸」即一次过 DRC=0。`auto_fanout` 把这套手调几何**自动化**。
 - **几何优先**有方向性,不是「永远紧簇」**(本会话反例)**:mcu(双层无平面、16 LED 密集阴极汇流)把扇出链**竖列紧簇**反令 DRC 由 ~4 暴增到 0/37/51。**就近紧簇利于高脚数逃逸,却害双层密集汇流**——后者紧簇令 GND 汇流与限流支路两层互锁拥塞,**均匀铺开(_grid)反更优**。故 mcu 保留 _grid;实验证伪即纳之(反者道之动)。
 - **差分对约束需可并走的真实跨段**(cap vs qdiff 实证):`auto_fanout` 的「焊盘→1 串阻」退化短桩上声明 `diff_pairs` 触发 Differential Pair Error(cap 实测 DRC=1);给配对两网真实并走跨段(qdiff:源相邻两脚→远端竖向紧邻 sink),freerouting 差分布线即收敛 DRC=0、skew≈2.7mil。
-- **诚实定界**:① headless 无实铜覆铜(`rebuildCopperRegion` 恒 undefined,见 FINDINGS);② freerouting **仅通孔、不做长度调谐(蛇形)**——故 BGA **内圈球** escape 与差分严格等长是当前布线级前沿;③ length_audit 的 skew/spread 取决于放置对称性,如实记录(hs 对称放置恰好 skew=0,skewlen 不对称放置 spread=1380mil 验证审计量真);④ mcu 偶发不收敛(~1/8)是 **2 层无平面**的真实边界,据实存档,不以更差紧簇粉饰。
+- **边界→能力(length_tune·本会话)**:freerouting **不做长度调谐**曾据实存档为边界;今以**布线后原位蛇形**跨过它——删一段直走线、同端点重画更长的朝板内梳状折线,端点不动故连通不破。关键两堑:① 盲目**交替两侧**会把铜推出板框/贴焊盘(净距违规)→ 改**单侧朝板内 bbox 心 + 两端 inset**;② 蛇形**几何长 ≠ getNetLength 实测增量**(单发开环欠补)→ 改**闭环迭代**重测续补。tune 板 spread 300→0.0mil DRC=0。诚实留界:**短网/密板无处可蛇**(skewlen:NA 仅 ~220mil 欠 1380mil,物理补不满,留大 residual 据实记,不强补)。
+- **诚实定界**:① headless 无实铜覆铜(`rebuildCopperRegion` 恒 undefined,见 FINDINGS);② freerouting **仅通孔**——故 BGA **内圈球** escape 是当前布线级前沿(等长/差分长度匹配已由 `length_tune` 在布线后补上,见上条);③ length_audit 的 skew/spread 取决于放置对称性,如实记录(hs 对称放置恰好 skew=0,skewlen 不对称放置 spread=1380mil 验证审计量真);④ mcu 偶发不收敛(~1/8)是 **2 层无平面**的真实边界,据实存档,不以更差紧簇粉饰。
 
-### 板谱(13,VM 活体 DRC=0 CLEAN;mcu 见上注 ~1/8 偶发不收敛)
-`simple/medium/complex/mcu`(几何全链)· `hs`(约束级:网类+差分对+等长组+类线宽注入 DSN)· `via6`(6 层+自定义过孔+盲埋孔层对)· `qfp`(LQFP48 四边手调扇出)· `autofan`(同 QFP 但 auto_fanout 零手填坐标)· `soicfan`(SOIC16 双边 auto_fanout)· `bga`(BGA64 0.65mm 外圈通孔逃逸)· `skewlen`(不对称等长组反验 length_audit 报非零 spread)· `cap`(合龙:几何扇出+网类+等长+4 层+审计可组合)· `qdiff`(高脚数 QFP 真差分对 DRC=0)。
+### 板谱(14,VM 活体 DRC=0 CLEAN;mcu 见上注 ~1/8 偶发不收敛)
+`simple/medium/complex/mcu`(几何全链)· `hs`(约束级:网类+差分对+等长组+类线宽注入 DSN)· `via6`(6 层+自定义过孔+盲埋孔层对)· `qfp`(LQFP48 四边手调扇出)· `autofan`(同 QFP 但 auto_fanout 零手填坐标)· `soicfan`(SOIC16 双边 auto_fanout)· `bga`(BGA64 0.65mm 外圈通孔逃逸)· `skewlen`(不对称等长组反验 length_audit 报非零 spread)· `tune`(现实等长场景:适度 skew+可比长+留余量,布线后 `length_tune` 把 spread 收到 0)· `cap`(合龙:几何扇出+网类+等长+4 层+审计可组合)· `qdiff`(高脚数 QFP 真差分对 DRC=0)。
 
 > 接手姿势:先 `python build_capstone_full.py` 确认底座活;再挑一条前沿,逆向 → 实现 → `build_*_det.py` 活体验证 → py_compile → 干净 PR → CI 绿 → 合并。一直推进,一直完善。

@@ -1016,6 +1016,161 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
                 "spread_mil": (max(vals) - min(vals)) if len(vals) >= 2 else None}
         return out
 
+    def _net_lines(self, net):
+        """某网在板上的全部铜线段 [{id,layer,sx,sy,ex,ey,w}]。"""
+        ids = self._call("pcb_PrimitiveLine.getAllPrimitiveId", timeout=25) or []
+        out = []
+        for i in ids:
+            g = self._call("pcb_PrimitiveLine.get", i, timeout=8)
+            if g and g.get("net") == net and g.get("primitiveType") == "Line":
+                out.append({"id": i, "layer": g.get("layer", TOP),
+                            "sx": g["startX"], "sy": g["startY"],
+                            "ex": g["endX"], "ey": g["endY"],
+                            "w": g.get("lineWidth", 10)})
+        return out
+
+    @staticmethod
+    def _meander_points(a, b, deficit, amp, min_cell, toward=None, inset=0.0,
+                        amp_max=120.0):
+        """直段 A→B 原位替换为**同端点**的单侧梳状蛇形,精确多走 deficit(mil)。
+
+        关键(v2·吃一堑实证):蛇形齿**全部朝板内**(由 `toward` 选垂直符号),而非盲目
+        交替两侧——交替会把铜推出板框/贴焊盘(实测 Board-Outline/Pad-to-Track 净距违规)。
+        且只在直段**中段**起蛇(两端 `inset` 留直,远离焊盘/拐角)。每齿出入各 amp → 每齿
+        +2*amp;k=min(ceil(deficit/2amp), floor(Lm/min_cell)),回算 amp 使长度精确;amp 封顶
+        `amp_max`,补不满则返回 residual 据实记(不强补、不冒净距险)。返回 (pts, residual)。"""
+        import math
+        ax, ay = a
+        bx, by = b
+        L = math.hypot(bx - ax, by - ay)
+        Lm = L - 2.0 * inset                 # 可蛇形的中段长
+        if L <= 0 or deficit <= 0 or Lm < min_cell:
+            return [a, b], deficit
+        ux, uy = (bx - ax) / L, (by - ay) / L
+        px, py = -uy, ux
+        # 垂直符号朝板内:perp 指向 toward 的一侧为正
+        sgn = 1.0
+        if toward is not None:
+            mx, my = (ax + bx) / 2.0, (ay + by) / 2.0
+            if (toward[0] - mx) * px + (toward[1] - my) * py < 0:
+                sgn = -1.0
+        k_room = max(1, int(Lm // min_cell))
+        k = min(max(1, int(math.ceil(deficit / (2.0 * amp)))), k_room)
+        amp_eff = deficit / (2.0 * k)
+        residual = 0.0
+        if amp_eff > amp_max:                # 振幅封顶:补不满则据实留 residual
+            amp_eff = amp_max
+            residual = deficit - 2.0 * amp_eff * k
+        s = amp_eff * sgn
+        cell = Lm / k
+        sx, sy = ax + ux * inset, ay + uy * inset       # 中段起点
+        pts = [a, (sx, sy)]                              # 端点→中段起(直)
+        for i in range(k):
+            c0x, c0y = sx + ux * (i * cell), sy + uy * (i * cell)
+            c1x, c1y = sx + ux * (i + 1) * cell, sy + uy * (i + 1) * cell
+            pts.append((c0x + px * s, c0y + py * s))
+            pts.append((c1x + px * s, c1y + py * s))
+            pts.append((c1x, c1y))
+        pts.append(b)                                    # 中段末→端点(直)
+        return pts, residual
+
+    def length_tune(self, constraints, amp=30, tol=8.0, max_passes=6):
+        """**布线后几何调长**:把 freerouting 不做的等长/差分蛇形补偿,用实铜蛇形补上——
+        把曾据实存档的『freerouting 不做长度调谐』**边界转成能力**(同 cap→qdiff 之道)。
+
+        以**组内最长网**为基准,给较短网在其**当前最长直段**处原位插朝板内的曼哈顿蛇形
+        (删原段 → 同端点画更长折线 → 端点不动故电气连续不破)。
+
+        **闭环迭代**(吃一堑实证):蛇形几何长 ≠ `getNetLength` 实测增量(实测铜长算法非简单
+        段长累加,单发开环常欠补),故每趟**重测实测长**按真实 deficit 续补,直到 spread≤tol
+        或无进展(max_passes 上限)。每趟自然落到**新的最长直段**,顺带在多段间分摊蛇形。
+        诚实定界:蛇形占相邻空间,过密/短网可能 clearance 或无处可蛇 → 留 residual 据实记,
+        不强补。返回后**务必复跑 drc** 确认未破净距(上层 build 已串 drc)。"""
+        import math
+        cons = constraints or {}
+        groups = []
+        for nm, grp in (cons.get("equal_length") or {}).items():
+            groups.append(("EQ:" + nm, list(grp)))
+        for nm, pair in (cons.get("diff_pairs") or {}).items():
+            groups.append(("DP:" + nm, list(pair)))
+
+        def _len(n):
+            try:
+                v = self._call("pcb_Net.getNetLength", n, timeout=15)
+                return v if isinstance(v, (int, float)) else None
+            except Exception:
+                return None
+
+        def _center():
+            allseg = []
+            ids = (self._call("pcb_PrimitiveLine.getAllPrimitiveId",
+                              timeout=25) or [])
+            for i in ids:
+                g = self._call("pcb_PrimitiveLine.get", i, timeout=8)
+                if g and g.get("primitiveType") == "Line":
+                    allseg += [(g["startX"], g["startY"]),
+                               (g["endX"], g["endY"])]
+            if not allseg:
+                return None
+            xs = [p[0] for p in allseg]
+            ys = [p[1] for p in allseg]
+            return ((min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0)
+
+        allnets = set()
+        for _, nets in groups:
+            allnets.update(nets)
+        before = {n: _len(n) for n in allnets}
+        passes = []
+        for _ in range(max_passes):
+            cur = {n: _len(n) for n in allnets}
+            center = _center()
+            changed = False
+            for gname, nets in groups:
+                vals = [cur[n] for n in nets if cur.get(n) is not None]
+                if len(vals) < 2 or (max(vals) - min(vals)) <= tol:
+                    continue
+                target = max(vals)
+                for n in nets:
+                    c = cur.get(n)
+                    if c is None or target - c <= tol:
+                        continue
+                    deficit = target - c
+                    segs = self._net_lines(n)
+                    if not segs:
+                        continue
+                    seg = max(segs, key=lambda s: math.hypot(
+                        s["ex"] - s["sx"], s["ey"] - s["sy"]))
+                    min_cell = max(40.0, 4.0 * seg["w"])
+                    inset = max(20.0, 3.0 * seg["w"])
+                    pts, _r = self._meander_points(
+                        (seg["sx"], seg["sy"]), (seg["ex"], seg["ey"]),
+                        deficit, amp, min_cell, toward=center, inset=inset)
+                    if len(pts) <= 2:
+                        continue
+                    self._call("pcb_PrimitiveLine.delete", seg["id"],
+                               timeout=15)
+                    for j in range(len(pts) - 1):
+                        self.route_track(n, pts[j][0], pts[j][1],
+                                         pts[j + 1][0], pts[j + 1][1],
+                                         layer=seg["layer"], width=seg["w"])
+                    changed = True
+            if not changed:
+                break
+            self.save()
+            passes.append({n: _len(n) for n in allnets})
+
+        after = {n: _len(n) for n in allnets}
+        report = {"groups": {}, "before_mil": before, "after_mil": after,
+                  "passes": len(passes)}
+        for gname, nets in groups:
+            b = [before[n] for n in nets if before.get(n) is not None]
+            a = [after[n] for n in nets if after.get(n) is not None]
+            report["groups"][gname] = {
+                "nets": nets,
+                "spread_before": (max(b) - min(b)) if len(b) >= 2 else None,
+                "spread_after": (max(a) - min(a)) if len(a) >= 2 else None}
+        return report
+
     def design_rules(self, raw=False):
         """当前 DRC 规则配置：{name, categories[, config]}。
 
@@ -1311,8 +1466,21 @@ return JSON.stringify({b64:btoa(s),size:u.length,name:f.name});}catch(e){return 
                     net=gnd, layers=tuple(spec.get("pour_layers", (TOP, BOTTOM))))
         self.save()
 
-        # freerouting 路径已在自愈闭环里 DRC 收敛，直接复用其最终结果（避免二次发散）
-        audit["steps"]["drc"] = ar["drc"] if ar else self.drc()
+        # 可选:布线后几何调长(原位蛇形补偿等长/差分),把 freerouting「不调长」转成能力。
+        # 调长改了铜 → DRC 须**重测**(不能复用布线器旧结果)。
+        tuned = False
+        if spec.get("length_tune") and spec.get("constraints"):
+            try:
+                audit["steps"]["length_tune"] = self.length_tune(
+                    spec["constraints"])
+                tuned = True
+            except Exception as e:
+                audit["steps"]["length_tune"] = {"error": str(e)}
+
+        # freerouting 路径已在自愈闭环里 DRC 收敛，直接复用其最终结果（避免二次发散）;
+        # 但若刚调长改了铜,必须重测 DRC 以反映蛇形是否破净距。
+        audit["steps"]["drc"] = (self.drc() if (tuned or not ar)
+                                 else ar["drc"])
         # 布线后长度审计：实测差分 skew / 等长组 spread（约束兑现度，据实入档）
         if spec.get("constraints"):
             try:
