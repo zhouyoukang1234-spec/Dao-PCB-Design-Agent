@@ -121,6 +121,43 @@ rep = NativeHealer().heal("bad.kicad_pcb", "healed.kicad_pcb", max_passes=4)
 实测 (3×0805 堆叠成板 → 真 DRC 24 违规 + 2 飞线): respace 化解全部间距类, route 闭飞线
 → **24→0 违规 / 2→0 飞线, 1 pass 收敛**, ok。
 
+### 〇.6 参数化本源器件库 · 朴散则为器 (`native_lib.py`)
+
+> 朴散则为器: 反复手写 `{ref,lib,fp,x,y}` 是"散"; 把常用器件 (电阻/电容/排针) 连同
+> **封装变体** (0402/0603/0805) 与**引脚→信号映射**抽象为一枚 `ComponentPrimitive`,
+> 即"器", 一次定义处处实例化。本源在: 封装是真 `.kicad_mod` (S-expr), 本层用 `sexpr`
+> 基座**直接读真焊盘名** → ① 校验所选封装在真库存在 ② 校验引脚映射焊盘名确属该封装
+> (拼错焊盘如实报 unknown)。反臆造: 封装/焊盘不实即报, 不静默替换。
+
+```python
+from kicad_origin.origin.native_lib import standard_library
+lib = standard_library()                 # R/C/Header_2x10 皆经真库校验
+rep = lib.build_from_primitives(
+    [{"name": "R", "ref": "R1", "x": 10, "y": 10, "variant": "0603"}, ...],
+    nets, "out/")                         # 实例 → spec → 全闭环
+```
+
+实测: R/C 读真封装 2 焊盘、Header_2x10 读真封装 20 焊盘, 校验全 ok; ghost 焊盘"9"如实
+报 unknown; 5 件 (含 0805/0603/20脚 3 变体) + 2 网 → route 4→0 (+9 走线) → fab zip,
+**全闭环 ok**。
+
+### 〇.7 本源全流程一体化 · 一条道贯之 (`native_flow.py`)
+
+> 三生万物: 把已逆流各本源层 (网表 `native_netlist`、器件库 `native_lib`、建板
+> `native_build`、布线 `native_route`、真 DRC 自愈 `native_heal`、制造 `native_ops`)
+> 贯成一条道 —— 喂入任一真上游 (原生 `.net` / `.kicad_sch` / spec), 一气呵成产出**经真
+> DRC 检过**的可投厂工件。与 `full_flow` 别: ① 统一吃多源上游 ② 建板与投厂间插入**以真
+> DRC 为裁判的自愈闸** (先 heal 再 fab, 不投违规板)。反臆造: 缺封装如实溯源 (`_origin`),
+> 自愈以真 DRC 判收敛。
+
+```python
+from kicad_origin.origin.native_flow import run_flow
+rep = run_flow("design.net", "out/")     # netlist → 建板 → 自愈闸 → 布线 → 投厂
+```
+
+实测 (divider.net, 3 件/4 网): build (2 飞线) → heal (DRC 0 违规 / 飞线 2→0) → fab zip,
+`_origin` 如实溯源 (3 件全可放, 0 缺封装), **全流程 ok**。
+
 ## 一、摸清本源: KiCAD 9.0.9 原生能力面 (VM 实测)
 
 | 能力 | KiCAD 原生本源 | 取代我此前的"从零造" |
