@@ -247,8 +247,21 @@ min_mm, max_mm)`——克隆既有 Track 子规则为模板、改各层 min/defa
 （与 `Track→hs_wide` 同时）→ 全链路 **DRC=0 CLEAN（1 试）**。
 
 > 心法：凡 `form` 态数值属性（Track / Via Size / Net Length / Differential Pair 的线宽段）
-> 皆「克隆模板→改数→`overwriteCurrentRuleConfiguration` 整体写回→读回」一招通吃；唯
-> `Safe Spacing` 类的 `column/row/tables`(Tcr：13 行定长数值阵) 形态较重，留作下一前沿。
+> 皆「克隆模板→改数→`overwriteCurrentRuleConfiguration` 整体写回→读回」一招通吃。
+
+**自定义安全间距子规则落地（`column/row/tables` 态已攻克）**：`Safe Spacing` 是
+`column/row/tables` 态——`tables[*].content` 为 **13 行三角矩阵**（各行长
+`[1,2,…,11,11,12]`，恰为 `Tcr` 期望），每格是「两类要素间距(mm)」（列 12 类、行 13 类）。
+统一间距 = 把矩阵所有格置同值。据此封 `add_spacing_rule(name, clearance_mm)`（克隆模板
+→重写 content→整体写回→读回），`apply_constraints` 新增 `spacing_rules`。
+
+- **实测**：medium 板 `hs_clear`(0.13mm，略高于默认 ~0.102mm) → `BUS6` 类
+  `Safe Spacing→hs_clear` → 全链路 **DRC=0 CLEAN（1 试）**。
+- **本源教训（知止有度）**：先试 0.13mm CLEAN；但**统一 0.2mm**（近默认 2×、且作用于
+  含板框/孔等所有要素对）在 medium 这种密板上 freerouting 6 试不收敛（DRC 11，且违规数
+  随更严规则上升——恰证规则**确已生效**）。即：能力本身稳（读回确认落库），但**间距值须与
+  板密度匹配**；过激的全局间距会让布线无解。差异化规则的价值在「按类适度收紧」，非越严越好。
+- 至此 GUI 里「物理规则」可调的**线宽 / 过孔 / 安全间距**三大数值族，RPC 均能自定义精确落库。
 
 ## 一句话沉淀
 

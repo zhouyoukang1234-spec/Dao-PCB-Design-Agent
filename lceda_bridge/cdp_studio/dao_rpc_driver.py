@@ -412,9 +412,11 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
             "equal_length":{名: [网络…]},
             "track_rules":{名: {"default_mm":, "min_mm":, "max_mm":}},
             "via_rules":  {名: {"outer_mm":, "inner_mm":}},
+            "spacing_rules":{名: {"clearance_mm":}},
             "class_rules": {类名: {属性: 具名子规则}}}。返回落库回执。"""
         out = {"net_classes": {}, "diff_pairs": {}, "equal_length": {},
-               "track_rules": {}, "via_rules": {}, "class_rules": {}}
+               "track_rules": {}, "via_rules": {}, "spacing_rules": {},
+               "class_rules": {}}
         for nm, nets in (constraints.get("net_classes") or {}).items():
             out["net_classes"][nm] = self.net_class(nm, nets)
         for nm, pair in (constraints.get("diff_pairs") or {}).items():
@@ -428,6 +430,9 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
         for nm, p in (constraints.get("via_rules") or {}).items():
             out["via_rules"][nm] = self.add_via_rule(
                 nm, p["outer_mm"], p["inner_mm"])
+        for nm, p in (constraints.get("spacing_rules") or {}).items():
+            out["spacing_rules"][nm] = self.add_spacing_rule(
+                nm, p["clearance_mm"])
         # 差异化规则须在网络类已建之后落（指向具名子规则）
         for cls, rules in (constraints.get("class_rules") or {}).items():
             out["class_rules"][cls] = {
@@ -521,6 +526,34 @@ var j=await r.json();return JSON.stringify({ok:j.success,uuid:Object.keys(j.resu
         if name not in back:
             raise DaoRpcError("add_via_rule(%s) 未落库" % name)
         return {"name": name, "outer": outer_mm, "inner": inner_mm}
+
+    def add_spacing_rule(self, name, clearance_mm):
+        """新增一条**自定义安全间距子规则**（Spacing/Safe Spacing）并应用到当前 PCB。
+
+        本源（读 `ui.js` 实证）：`Safe Spacing` 子规则是 `column/row/tables` 态——
+        `tables[*].content` 是 13 行三角矩阵（各行长 `[1..11,11,12]`，受 `Tcr` 校验），
+        每个数是「两类要素之间的间距(mm)」。统一间距 = 把矩阵所有格置为同一值。克隆既有
+        子规则当模板、改 content 即可，经 `overwriteCurrentRuleConfiguration` 整体写回、
+        读回确认。建好后 `set_net_class_rule(类, "Safe Spacing", name)` 引用。单位 mm。"""
+        cfg = (self._call("pcb_Drc.getCurrentRuleConfiguration", timeout=25)
+               or {}).get("config", {})
+        spc = cfg.get("Spacing", {}).get("Safe Spacing", {})
+        if not spc:
+            raise DaoRpcError("当前配置无 Spacing/Safe Spacing，无法加间距子规则")
+        import copy as _copy
+        tmpl = _copy.deepcopy(next(iter(spc.values())))
+        tmpl["editName"] = name
+        for tbl in tmpl.get("tables", {}).values():
+            tbl["content"] = [[clearance_mm for _ in row]
+                              for row in tbl.get("content", [])]
+        spc[name] = tmpl
+        self._call("pcb_Drc.overwriteCurrentRuleConfiguration", cfg, timeout=30)
+        back = ((self._call("pcb_Drc.getCurrentRuleConfiguration", timeout=25)
+                 or {}).get("config", {}).get("Spacing", {})
+                .get("Safe Spacing", {}))
+        if name not in back:
+            raise DaoRpcError("add_spacing_rule(%s) 未落库" % name)
+        return {"name": name, "clearance": clearance_mm}
 
     def net_rules(self):
         """网络/网络类的规则树（只读）。每个 netClass/net 节点带 Track、Safe Spacing、
