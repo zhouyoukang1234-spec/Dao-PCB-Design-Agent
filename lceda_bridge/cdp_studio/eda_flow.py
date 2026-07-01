@@ -1067,6 +1067,16 @@ class Flow:
             by[e["errorType"]] = by.get(e["errorType"], 0) + 1
         return {"total": len(v), "by_type": by}
 
+    def drc_by_net(self, drc_viol=None, strict=True, timeout=60):
+        """把 DRC 违规**按网分组**:{net名: [该网涉及的违规...], "_no_net": [...]}。
+        纯读、不动板;与 unrouted_nets 互补——前者只答「哪些网没布通」,本法答「每个网各有哪些
+        (含间距/短路等所有类型)违规」,便于按网定位问题。无 net 字段的违规归入 '_no_net'。"""
+        v = drc_viol if drc_viol is not None else self.drc_violations(strict=strict, timeout=timeout)
+        out = {}
+        for e in v:
+            out.setdefault(e.get("net") or "_no_net", []).append(e)
+        return out
+
     def unrouted_nets(self, drc_viol=None, strict=True, timeout=60):
         """返回**仍未布通**的网名集合(DRC「Connection Error / No Connection」涉及的网)。
 
