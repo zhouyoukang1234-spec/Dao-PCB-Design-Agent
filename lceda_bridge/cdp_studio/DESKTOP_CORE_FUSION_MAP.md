@@ -187,13 +187,33 @@ via 总数归 0、`je.redoCommand` +1。**内部事务管理器完整回退 faca
 - 注:`settle_ms` 是与往返次数正交的可靠性旋钮(create 实测无需 settle);逐段 `modify`
   的异步态四铁律仍需 settle/save-reopen,批写只是把「一次 settle 覆盖 N 写」。
 
-### 方向D · dao_core 端到端跑真板 + 录屏 —— 进行中
-- 目标:经内部事务/总线直调链路端到端跑一块真板(建→放件→绑网→布线→DRC→导出),
-  桌面录屏留证,导出 gerber 作产物。见 `dao_core_d_proof.py`。
+### 方向D · dao_core 端到端跑真板 + 录屏 —— PASS ✅(`dao_core_d_proof.py`)
+- 经内部事务/总线直调链路(dao_core L2 + dao_rpc_driver 编排)**零人工 GUI** 端到端
+  造出一块可制造真板:建工程→放件→绑网→板框→freerouting 全布通→DRC=0→导出。
+- 活体硬证(complex 板谱,`dao_core_d_proof.py` RESULT PASS,52s):
+  | 指标 | 值 |
+  |---|---|
+  | 元件 placed / 规格 | **20 / 20** |
+  | 网数 nets | **12** |
+  | DRC 违规 total | **0(CLEAN)** |
+  | 导出真字节 | gerber **15 713 B** · BOM **6 894 B** · PnP **8 294 B** |
+  | 产物目录 | `~/dao_pcb_out/DAO_C1_RC2rail/`(含 `audit.json`) |
+- 桌面录屏三重目视坐实(附 PR #164):① 2D 走线图 20 元件 / 12 网红顶蓝底全布通;
+  ② GUI「检查DRC」全部(0) 零违规;③ 3D 实体渲染双层板叠层 + 元件全落位。
+- 副产坐实:RPC 建板后画布对新图元有**渲染滞后**(je 事务已落、`Ctrl+A` 选中 156 图元
+  确认模型齐全),`location.reload()` 从盘重载即整板重绘——记为 GUI 侧已知刷新特性。
 
-## 6. 下一步
-1. 方向D 端到端录屏收官,附 PR #164。
-2. 逐段 `modify`(线宽/属性)改挂 batch_write + save-reopen 复位,消解异步态四铁律。
-3. worker target 直连(`/pcb/3d/* /model/export/*` 仍在 worker 侧)使全量 1140 RPC 可达。
+## 6. 四方向收敛小结
+| 方向 | 命题 | 硬证 | 结论 |
+|---|---|---|---|
+| A | worker `/engine/*` RPC 直调 | `dao_core_engineproof.py` | PASS ✅ |
+| B | facade 外 GUI publish 操作 | `dao_core_publishproof.py` | PASS ✅ |
+| C | 内部事务共栈批写 + 整体回退 | `dao_core_writeproof.py` | PASS ✅ |
+| D | 端到端跑真板 + 录屏留证 | `dao_core_d_proof.py` | PASS ✅ |
+
+## 7. 下一步
+1. 逐段 `modify`(线宽/属性)改挂 batch_write + save-reopen 复位,消解异步态四铁律。
+2. worker target 直连(`/pcb/3d/* /model/export/*` 仍在 worker 侧)使全量 1140 RPC 可达。
+3. RPC 建板后主动触发画布重绘(免 reload),消解渲染滞后。
 
 *道法自然 · 无为而无不为:得其母以知其子,复守其母。*
