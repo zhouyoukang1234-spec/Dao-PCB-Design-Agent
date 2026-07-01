@@ -359,6 +359,16 @@ class BoardBuilder:
                 widened[str(w_mil)] = f.widen_net_tracks(w_mil, grp)
             f.eda.call("pcb_Document.save", timeout=20)
             time.sleep(1)
+        # 残余网补布(自校验·非破坏):原生自动布线非确定性,偶留个别网未通;此步扫未通网并在空闲层
+        # 补齐,补后复检 DRC,一旦引入新违规即全板 id 差集回滚——能干净补则补、否则安全 no-op,永不恶化板子。
+        # **必须在敷铜之前**:补布后的敷铜会自动在新铜四周留间隙(避让);若在敷铜后补,新铜会撞满铺的地铜。
+        residual = None
+        if isinstance(route, dict) and route.get("tracks", 0) > 0:
+            try:
+                residual = f.complete_residual_nets(verify=True)
+                f.eda.call("pcb_Document.save", timeout=20)
+            except Exception as e:
+                residual = "ERR:" + str(e)[:60]
         pour = None
         if getattr(self, "_ground_pour", False):
             try:
@@ -373,7 +383,7 @@ class BoardBuilder:
         out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                (out_base or self.state.get("name", "Dao")) + "_fab")
         exp = f.export_all(out_dir, base=out_base or self.state.get("name", "Dao"))
-        return {"outline": bo, "layers": layers_set, "diff": diff, "widened": widened, "route": route, "pour": pour, "drc": drc, "export_dir": out_dir,
+        return {"outline": bo, "layers": layers_set, "diff": diff, "widened": widened, "route": route, "residual": residual, "pour": pour, "drc": drc, "export_dir": out_dir,
                 "export": {k: (v.get("size") if isinstance(v, dict) else v) for k, v in exp.items()}}
 
     # ---- 一键全流程 ----
