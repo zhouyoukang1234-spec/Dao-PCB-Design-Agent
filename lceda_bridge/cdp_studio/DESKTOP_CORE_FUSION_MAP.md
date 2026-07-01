@@ -125,11 +125,16 @@
 - `.publish(topic,args)`:内部发布总线直发。
 - 定位:坐落 `dao_rpc_driver` 之下的"本体直通"层,替代盲探 `_EXTAPI_ROOT_` 试错。
 
-## 4. 下一步(推进序)
-1. 用 `dao_core` 落一个**facade 外**的活体动作作硬证(如经 `je` 事务做一次可逆编辑
-   + `undo` 复原,证"用户能做的我更快"、且不劣化)。
-2. 定位私有总线频道(路径甲总线侧):把 1140 RPC 主题按 `createPrivateMessageBus`
+## 4. 活体硬证(facade 外·可逆·不劣化)—— 已完成 ✅
+`dao_core_l2proof.py`(实测 RESULT PASS,board ba7025338c90):
+经 facade 建一个 via → 调**内部** `je.undo()`(不在 752 白名单)→ via 查无(gone)、
+via 总数归 0、`je.redoCommand` +1。**内部事务管理器完整回退 facade 编辑、板子还原、
+未存盘**。坐实:dao_core 暴露的 L2 命令管理器确能编程直调并作用于真实引擎状态,
+印证"用户能做的(撤销/事务)我经内部管理器也能做,不改本体存盘、不劣化"。
+
+## 5. 下一步(推进序)
+1. 定位私有总线频道(路径甲总线侧):把 1140 RPC 主题按 `createPrivateMessageBus`
    频道归位,开放 3D/导出/DB worker 直调。
-3. 将 `dao_rpc_driver` 的高频写侧原语改挂 `dao_core`(内部事务直调),消解异步态四铁律。
+2. 将 `dao_rpc_driver` 的高频写侧原语改挂 `dao_core`(内部事务直调),消解异步态四铁律。
 
 *道法自然 · 无为而无不为:得其母以知其子,复守其母。*
