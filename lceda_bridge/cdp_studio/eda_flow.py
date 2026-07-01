@@ -1138,6 +1138,89 @@ class Flow:
             return (px, py)
         return (px + ux * breakout, py + uy * breakout)
 
+    def _maze_path(self, start, end, obstacles, clearance, step, cap=160):
+        """**避障正交布线**(格点 BFS)——在目标层把 start→end 用只走横竖的折线连通,绕开既有铜。
+        `obstacles` 为**线段**列表 `[((x1,y1),(x2,y2))...]`:异网走线传其两端;异网过孔/焊盘传退化
+        线段(同点两次)。每段沿途按 step/2 采样、每采样点膨胀半边=clearance 的方块记为禁区。这是把
+        残余补布从「直线硬连」升级到「绕开全板异网铜」的关键——即便两端间横着第三器件或既有走线,
+        也能自动兜过去。返回合并共线后的路点 [(x,y)...](含 start/end);无解返回 None,调用方退回
+        直线(verify 仍兜底,永不伤板)。step=格距,cap=每轴最大格数(控性能)。"""
+        pxs = [start[0], end[0]]
+        pys = [start[1], end[1]]
+        for (ax, ay), (bx, by) in obstacles:
+            pxs += [ax, bx]
+            pys += [ay, by]
+        pad = clearance + step
+        xmin, xmax = min(pxs) - pad, max(pxs) + pad
+        ymin, ymax = min(pys) - pad, max(pys) + pad
+        span = max(xmax - xmin, ymax - ymin, 1e-6)
+        if span / step > cap:            # 自适应放大格距,限住格数
+            step = span / cap
+        nx = int((xmax - xmin) / step) + 1
+        ny = int((ymax - ymin) / step) + 1
+        def gi(x):
+            return min(max(int(round((x - xmin) / step)), 0), nx - 1)
+        def gj(y):
+            return min(max(int(round((y - ymin) / step)), 0), ny - 1)
+        blocked = bytearray(nx * ny)
+        r = int(clearance / step) + 1
+        def block_point(ox, oy):
+            ci, cj = gi(ox), gj(oy)
+            for i in range(max(0, ci - r), min(nx, ci + r + 1)):
+                for j in range(max(0, cj - r), min(ny, cj + r + 1)):
+                    blocked[i * ny + j] = 1
+        for (ax, ay), (bx, by) in obstacles:  # 沿线段采样打点(退化段=单点)
+            seglen = math.hypot(bx - ax, by - ay)
+            n = max(1, int(seglen / (step * 0.5)) + 1)
+            for s in range(n + 1):
+                t = s / n
+                block_point(ax + (bx - ax) * t, ay + (by - ay) * t)
+        si, sj, ei, ej = gi(start[0]), gj(start[1]), gi(end[0]), gj(end[1])
+        blocked[si * ny + sj] = 0
+        blocked[ei * ny + ej] = 0
+        from collections import deque
+        prev = [-1] * (nx * ny)
+        seen = bytearray(nx * ny)
+        s0 = si * ny + sj
+        goal = ei * ny + ej
+        seen[s0] = 1
+        dq = deque([s0])
+        found = False
+        while dq:
+            cur = dq.popleft()
+            if cur == goal:
+                found = True
+                break
+            ci, cj = divmod(cur, ny)
+            for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                ni, nj = ci + di, cj + dj
+                if 0 <= ni < nx and 0 <= nj < ny:
+                    idx = ni * ny + nj
+                    if not seen[idx] and not blocked[idx]:
+                        seen[idx] = 1
+                        prev[idx] = cur
+                        dq.append(idx)
+        if not found:
+            return None
+        cells = []
+        cur = goal
+        while cur != -1:
+            cells.append(cur)
+            cur = prev[cur]
+        cells.reverse()
+        pts = [(xmin + (c // ny) * step, ymin + (c % ny) * step) for c in cells]
+        pts[0] = (start[0], start[1])
+        pts[-1] = (end[0], end[1])
+        merged = [pts[0]]                # 合并共线点,减少段数
+        for k in range(1, len(pts) - 1):
+            ax, ay = merged[-1]
+            bx, by = pts[k]
+            cx, cy = pts[k + 1]
+            if (bx - ax) * (cy - by) != (by - ay) * (cx - bx):
+                merged.append(pts[k])
+        merged.append(pts[-1])
+        return merged
+
     def complete_residual_nets(self, prefer_layer=2, width=10, breakout=50,
                                hole=20, diameter=32, verify=True, drc_viol=None,
                                strict=True, timeout=90):
@@ -1155,6 +1238,10 @@ class Flow:
            时补布后复检 DRC:**只要引入任何新违规,就把本次新加的全部图元原样删除回滚**,诚实报告该网
            未能干净补齐(remaining 里仍列它)。于是本原语退化为「能干净补则补、不能则安全 no-op」,
            对**焊盘间距充裕/存在空闲内层**的板确定性收网,对拥挤板不制造脏铜——广泛适配、鲁棒、诚实。
+        3) 目标层两过孔间**不再直线硬连**(直线遇夹在中间的第三个器件会撞其异网焊盘)→ 改用
+           `_maze_path` **格点避障折线**绕开全板异网焊盘;无解才退回直线。格距/间距按全板焊盘最近邻
+           pitch 自适应(与坐标单位无关)。这把本原语从「仅间距充裕才成」推进到「能绕障就成」,
+           verify 仍全程兜底,故升级只会让更多网干净补齐、绝不会伤板。
 
         目标层默认底层(2,恒为真实铜层);4 层板可传 prefer_layer=内层 id 走近乎全空的内层。
         返回 {before, completed, reverted, remaining, drc_before, drc_after, layer, detail}。
@@ -1168,9 +1255,36 @@ class Flow:
         layer = prefer_layer
         centers = self._component_centers()  # 每个焊盘 → 其器件几何中心(算「向外」方向用)
         by = self.pcb_pins_by_net()
+        # 自适应格距/间距:取全板焊盘的最近邻间距(pitch)为尺度基准——与坐标单位无关
+        allpts = [p for pl in by.values() for p in pl]
+        pitch = None
+        for i in range(len(allpts)):
+            for j in range(i + 1, len(allpts)):
+                d = math.hypot(allpts[i][0] - allpts[j][0], allpts[i][1] - allpts[j][1])
+                if d > 1e-6 and (pitch is None or d < pitch):
+                    pitch = d
+        clearance = (pitch * 0.4) if pitch else max(width * 2.0, 20.0)
+        mstep = max(clearance / 2.0, 1e-3)
         # 全板 id 快照:回滚只按「补布后新出现的 id」做集合差删除——不依赖 create() 返回值,鲁棒
         snap_lines = set(self.pcb_track_ids() or [])
         snap_vias = set(self.eda.call("pcb_PrimitiveVia.getAllPrimitiveId", timeout=15) or [])
+        # 预取全板既有铜为障碍线段(按网标注):走线取两端,过孔取点(退化段);焊盘点在下方按网加入。
+        # 一次取全、循环内按网过滤——避免每网重复 RPC。
+        copper_segs = []  # [(net, ((x1,y1),(x2,y2)))]
+        for lid in snap_lines:
+            try:
+                g = self.eda.call("pcb_PrimitiveLine.get", lid, timeout=8) or {}
+            except Exception:
+                continue
+            if "startX" in g:
+                copper_segs.append((g.get("net") or "", ((g["startX"], g["startY"]), (g["endX"], g["endY"]))))
+        for vid in snap_vias:
+            try:
+                g = self.eda.call("pcb_PrimitiveVia.get", vid, timeout=8) or {}
+            except Exception:
+                continue
+            if "x" in g:
+                copper_segs.append((g.get("net") or "", ((g["x"], g["y"]), (g["x"], g["y"]))))
         detail = {}
         for net in sorted(before):
             pts = by.get(net) or []
@@ -1188,7 +1302,18 @@ class Flow:
                     self.pcb_track(net, b[0], b[1], vb[0], vb[1], layer=1, width=width); made += 1
                 self.pcb_via(net, va[0], va[1], hole=hole, diameter=diameter); made += 1
                 self.pcb_via(net, vb[0], vb[1], hole=hole, diameter=diameter); made += 1
-                self.pcb_track(net, va[0], va[1], vb[0], vb[1], layer=layer, width=width); made += 1
+                # 目标层连通:避障折线(绕开异网既有铜+焊盘);无解则退回直线,verify 兜底
+                obstacles = [seg for nm, seg in copper_segs if nm != net]
+                obstacles += [((p[0], p[1]), (p[0], p[1]))
+                              for nm, pl in by.items() if nm != net for p in pl]
+                path = self._maze_path(va, vb, obstacles, clearance, mstep)
+                if path and len(path) >= 2:
+                    for k in range(len(path) - 1):
+                        self.pcb_track(net, path[k][0], path[k][1],
+                                       path[k + 1][0], path[k + 1][1], layer=layer, width=width)
+                        made += 1
+                else:
+                    self.pcb_track(net, va[0], va[1], vb[0], vb[1], layer=layer, width=width); made += 1
             detail[net] = made
         self.eda.call("pcb_Document.save", timeout=20)
         time.sleep(1)

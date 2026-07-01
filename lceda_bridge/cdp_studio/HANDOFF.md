@@ -122,7 +122,8 @@
 ### 已固化原语(全部 VM 活体验证)
 - **`unrouted_nets(drc_viol=None)`** — 从 `_flatten_drc` 的 net 字段扫「Connection Error」→ 去重得**仍未布通的网名集合**。原生 GUI 自动布线器**非确定性**(密板偶留个别网),本法是补救层的「眼睛」。
 - **`drc_by_net(drc_viol=None)`** — 违规**按网分组** `{net:[viol...], "_no_net":[...]}`(纯读·零板面风险)。与 `unrouted_nets` 互补:后者答「哪些网没布通」,前者答「每个网各有哪些(含间距/短路等)违规」。二者均可传入已算好的 `drc_viol` 避免重算。
-- **`complete_residual_nets(verify=True, breakout, ...)`** — 残余网补布,**永不伤板**。对每未通网沿**离开器件本体**方向(焊盘→器件几何中心的反向)走顶层短桩把过孔挪出细距脚列 → 落过孔 → 空闲层串接。核心安全机制:补前对**全板** `{line_id,via_id}` 取快照,补后 re-DRC,`drc_after>drc_before` 即按「新出现的 id 差集」删掉本轮全部新增图元(all-or-nothing,**不依赖 create() 返回值**),报 reverted。返回 `{before,completed,reverted,remaining,drc_before,drc_after,layer,detail}`。
+- **`complete_residual_nets(verify=True, breakout, ...)`** — 残余网补布,**永不伤板**。对每未通网沿**离开器件本体**方向(焊盘→器件几何中心的反向)走顶层短桩把过孔挪出细距脚列 → 落过孔 → **空闲层用 `_maze_path` 避障折线串接**。核心安全机制:补前对**全板** `{line_id,via_id}` 取快照,补后 re-DRC,`drc_after>drc_before` 即按「新出现的 id 差集」删掉本轮全部新增图元(all-or-nothing,**不依赖 create() 返回值**),报 reverted。返回 `{before,completed,reverted,remaining,drc_before,drc_after,layer,detail}`。
+- **`_maze_path(start,end,obstacles,clearance,step)`** — 格点 BFS **避障正交布线**:`obstacles` 为线段列表(异网走线传两端、异网过孔/焊盘传退化段),沿段采样膨胀 clearance 记禁区,BFS 出只走横竖的折线并合并共线。格距/间距按全板焊盘最近邻 pitch **自适应**(与坐标单位无关)。单测已验:点障/线障均能绕、无障退直线。这把残余补布的目标层连接从「直线硬连」升级到「绕开全板异网铜」——两端间横着第三器件或既有走线也能兜过去;无解退直线,verify 兜底,**故升级只增补齐率、绝不伤板**。
 - **`copper_layers` 多层板**(`dao_board`)— 板谱声明层数即走内层;v4_4layer 四层可布板正向验证 DRC=0/14 格式。
 
 ### 本源教训(实证)
