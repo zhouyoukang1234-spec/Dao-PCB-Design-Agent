@@ -53,12 +53,22 @@
   先定位每个主题所属的**私有总线频道**(源码里 `createPrivateMessageBus("<ch>")`),
   拿对应 bus 句柄再 `rpcCall`。这一步已缩小为"频道匹配"问题,非玄学。
 
-### 路径乙(代码级·最深):写盘裸源 + 注入引导钩子
+### 路径乙(代码级·最深):写盘裸源 + 注入引导钩子 —— 【完整性护栏已判定:放行】
 - 源码明文可写 → 在本体自身 bootstrap 注入极小钩子,把 L2 的内部命令管理器
   `je` / 模块注册表挂到 `window.__DAO_CORE__`,则**全部 GUI 内部命令**(执行/属性/
   菜单)即可经 CDP 直调,达成前后端一切可改。
-- **拦路**:`extension.json.innerSign` + 文件 md5 可能触发加载期完整性校验。
-  落地前须先判定:该校验是否强制、在渲染层还是 Node 主进程、可否随钩子一并调和。
+- **完整性护栏实测判定(本轮坐实·放行)**:
+  - 主进程 `app.js` 对 `innerSign` **零引用**;渲染层 pro-ui 各 bundle 亦无
+    `innerSign / verifyExtension` 的加载期校验。
+  - app.js 里的 `checkSign/CheckSign/createHash` 命中**全部来自内置 JSZip**
+    (zip 格式 LOCAL_FILE_HEADER 签名),**非**资源完整性校验。
+  - 结论:`extension.json.innerSign` 是**发布/服务端**产物,**本地运行时不校验**;
+    故**本地改源不触发完整性门**——路径乙可行。
+- **两种落地技法**(择优):
+  1. **非破坏·CDP Debugger 闭包抓取**(无为·不改本体):在某 facade 方法内下断点、
+     触发调用、于暂停帧读闭包作用域拿到 `je`/editor 句柄,一次性 stash 到 window。
+  2. **源码追加钩子**(最简·可复现):在目标 asset JS 的 `je` 在域处追加
+     `window.__DAO_CORE__=...`,重启即生效;改动小且可 git 追踪/回滚。
 - 属"进程级融合"终态,收益最大,须谨慎不劣化。
 
 ## 3. 下一步(推进序)
