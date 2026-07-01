@@ -113,3 +113,19 @@
 `simple/medium/complex/mcu`(几何全链)· `hs`(约束级:网类+差分对+等长组+类线宽注入 DSN)· `via6`(6 层+自定义过孔+盲埋孔层对)· `qfp`(LQFP48 四边手调扇出)· `autofan`(同 QFP 但 auto_fanout 零手填坐标)· `soicfan`(SOIC16 双边 auto_fanout)· `bga`(BGA64 0.65mm 外圈通孔逃逸)· `skewlen`(不对称等长组反验 length_audit 报非零 spread)· `cap`(合龙:几何扇出+网类+等长+4 层+审计可组合)· `qdiff`(高脚数 QFP 真差分对 DRC=0)。
 
 > 接手姿势:先 `python build_capstone_full.py` 确认底座活;再挑一条前沿,逆向 → 实现 → `build_*_det.py` 活体验证 → py_compile → 干净 PR → CI 绿 → 合并。一直推进,一直完善。
+
+## 7. web 在线端续推 · net-aware DRC + 非破坏残余补布(本会话)
+
+> 声明式板谱直造在 `dao_board.py`(`route_export` 全链路),板谱 `build_web_boardpu.py`。
+> 本会话把「诊断」与「补救」两层沉进 `eda_flow.Flow`,并诚实修正一处过度声称。
+
+### 已固化原语(全部 VM 活体验证)
+- **`unrouted_nets(drc_viol=None)`** — 从 `_flatten_drc` 的 net 字段扫「Connection Error」→ 去重得**仍未布通的网名集合**。原生 GUI 自动布线器**非确定性**(密板偶留个别网),本法是补救层的「眼睛」。
+- **`drc_by_net(drc_viol=None)`** — 违规**按网分组** `{net:[viol...], "_no_net":[...]}`(纯读·零板面风险)。与 `unrouted_nets` 互补:后者答「哪些网没布通」,前者答「每个网各有哪些(含间距/短路等)违规」。二者均可传入已算好的 `drc_viol` 避免重算。
+- **`complete_residual_nets(verify=True, breakout, ...)`** — 残余网补布,**永不伤板**。对每未通网沿**离开器件本体**方向(焊盘→器件几何中心的反向)走顶层短桩把过孔挪出细距脚列 → 落过孔 → 空闲层串接。核心安全机制:补前对**全板** `{line_id,via_id}` 取快照,补后 re-DRC,`drc_after>drc_before` 即按「新出现的 id 差集」删掉本轮全部新增图元(all-or-nothing,**不依赖 create() 返回值**),报 reverted。返回 `{before,completed,reverted,remaining,drc_before,drc_after,layer,detail}`。
+- **`copper_layers` 多层板**(`dao_board`)— 板谱声明层数即走内层;v4_4layer 四层可布板正向验证 DRC=0/14 格式。
+
+### 本源教训(实证)
+- **补布必须在敷铜之前**:敷铜会在补布铜四周自动留隙避让;若在敷铜后补,新铜会撞满铺的地铜。故 `route_export` 顺序固定为 `autoroute → complete_residual_nets(verify) → auto_ground_pour`。
+- **诚实定界(修正声称)**:此前追求 BGA64「28/28 确定性收网」。经 af1(2层QFP)/s1_rc(宽距) 硬验证——**几何补布在既有铜/器件环绕的密区里「干净完成」本质就是布线问题本身**(朴素直线段无法绕障:即便宽距板,若两端之间夹着第三个器件,直连底铜就撞它的异网焊盘)。故 `complete_residual_nets` 在真实密板上实为**安全 no-op**(尝试→检出恶化→全回滚到基线,板分毫不动);**未实现** BGA 角球确定性补齐,如实标注不臆造。其正价值:接一层**永不伤板**的残余诊断 + 尽力补布,存在真正空闲空间时能干净收网。要真正攻下密板残余网,需**避障(maze/push-shove)布线器**而非直线几何——留作下一前沿(与 §5.4 Freerouting 闭环同源)。
+- **非破坏变更的通用范式**:任何「尝试性改板」都应 = 全板 id 快照 → 施改 → 复检真值(DRC)→ 恶化则按 id 差集回滚。这把「激进补救」与「永不伤板」解耦,是可广泛复用的鲁棒模式。
