@@ -167,8 +167,83 @@ def spec_q1_qfp():
     return BoardSpec(name="DaoWeb_Q1_QFP48", parts=parts, nets=nets, ground_pour=True)
 
 
+def spec_af1_autofan():
+    """几何驱动通用扇出(桌面 build_autofan 的 web 对偶):LQFP48 十六信号脚**不手填**串阻
+    坐标,改声明 auto_fanout={脚:网},由 BoardBuilder 读真实焊盘几何自动就近向外落阻。
+
+    对照 q1_qfp(手调四边坐标)应同得 DRC=0——印证「扇出」已成 web 端可复用本源原语,
+    自动化无损于手工几何。电源脚仍手填进 VCC/GND + 4 去耦。断言 DRC=0 + 14 格式。"""
+    VCC_PADS = (6, 18, 30, 42)
+    GND_PADS = (12, 24, 36, 48)
+    SIG_PADS = [2, 4, 8, 10, 14, 16, 20, 22, 26, 28, 32, 34, 38, 40, 44, 46]
+    parts = [("U1", "LQFP48", (0, 0))]
+    nets = {"VCC": [("U1", str(p)) for p in VCC_PADS],
+            "GND": [("U1", str(p)) for p in GND_PADS]}
+    for i in range(1, 5):
+        parts.append(("C%d" % i, C, (600 + (i - 1) * 300, 1400)))
+        nets["VCC"].append(("C%d" % i, "1"))
+        nets["GND"].append(("C%d" % i, "2"))
+    af = {"U1": {pad: "S%d" % k for k, pad in enumerate(SIG_PADS)}}
+    return BoardSpec(name="DaoWeb_AF1_AutoFan", parts=parts, nets=nets, ground_pour=True,
+                     auto_fanout=af, fanout_query=R, fanout_offset=420, fanout_depth_step=180)
+
+
+def spec_v4_4layer():
+    """四层板真能力**正向验证**(与 b1_bga 的定界互补):复用 af1_autofan 的可布拓扑
+    (LQFP48 十六信号脚 auto_fanout + 8 电源脚 + 4 去耦),但置 **copper_layers=4**。
+    可布板 + 多层应稳得 DRC=0——证 `copper_layers` 新能力端到端成立(非仅在前沿失败板上被调起)。
+    断言 DRC=0 + 14 格式。入默认 all。"""
+    VCC_PADS = (6, 18, 30, 42)
+    GND_PADS = (12, 24, 36, 48)
+    SIG_PADS = [2, 4, 8, 10, 14, 16, 20, 22, 26, 28, 32, 34, 38, 40, 44, 46]
+    parts = [("U1", "LQFP48", (0, 0))]
+    nets = {"VCC": [("U1", str(p)) for p in VCC_PADS],
+            "GND": [("U1", str(p)) for p in GND_PADS]}
+    for i in range(1, 5):
+        parts.append(("C%d" % i, C, (600 + (i - 1) * 300, 1400)))
+        nets["VCC"].append(("C%d" % i, "1"))
+        nets["GND"].append(("C%d" % i, "2"))
+    af = {"U1": {pad: "S%d" % k for k, pad in enumerate(SIG_PADS)}}
+    return BoardSpec(name="DaoWeb_V4_4Layer", parts=parts, nets=nets, ground_pour=True,
+                     auto_fanout=af, fanout_query=R, fanout_offset=420, fanout_depth_step=180,
+                     copper_layers=4)
+
+
+def spec_b1_bga():
+    """【前沿·非默认谱】栅格球阵周边逃逸(桌面 build_bga 的 web 对偶):BGA64(实测 8×8·
+    A1..H8)外圈 28 球各串一阻向外扇出,内 36 球留 NC。全由 auto_fanout 同一原语驱动——
+    读真实球坐标按边就近逃逸,零手填坐标(auto_fanout 原语本身已由 af1_autofan DRC=0 证成)。
+
+    **诚实边界(本会话多度硬实测·确定性结论)**:28 球逃逸恒达 27/28——角球 H8(S27)始终
+    无法逃逸(DRC=1 Connection Error,U1_H8 与 Rf_S27 两焊盘无铜相连)。已逐一排除各因:
+      · 非超时:autoroute 改轮询至收敛(settle),tracks 稳定后仍缺该网;
+      · 非扇出间距:offset 520→680、step 140→220 均不改变结果;
+      · **非层数**:本会话已给 web dao_board 补上 `copper_layers` 真能力(实测置 4 层生效,
+        tracks 226→184/vias 44→40,走内层),但角球仍 S27 未通 → 2 层/4 层同界。
+    结论:此为 web **原生 GUI 自动布线器的布线质量上限**(角球被周圈已布线包死,原生器不回退重排);
+    桌面 DAO_BGA1 达 DRC=0 是因其用 **freerouting**(更强的可回退布线器)。补齐该角球需引入
+    freerouting 级布线器到 web 通道(下一前沿),非本原语/层数所能及。
+    故 b1_bga 定为前沿谱(copper_layers=4,展示新多层能力 + 定界),经 FRONTIER 排除出默认
+    all(保持 all 全绿),仅可单独调起复现该边界。auto_fanout 原语本身已由 af1_autofan DRC=0 证成。"""
+    rows = "ABCDEFGH"
+    af = {}
+    k = 0
+    for r in range(8):
+        for c in range(8):
+            if r in (0, 7) or c in (0, 7):        # 仅外圈 28 球
+                af["%s%d" % (rows[r], c + 1)] = "S%d" % k
+                k += 1
+    return BoardSpec(name="DaoWeb_B1_BGA64", parts=[("U1", "BGA64", (0, 0))], nets={},
+                     auto_fanout={"U1": af}, fanout_query=R,
+                     fanout_offset=680, fanout_depth_step=220, copper_layers=4)
+
+
 SPECS = {"s1_rc": spec_s1_rc, "m1_rcnet": spec_m1_rcnet, "ic_ne555": spec_ic_ne555,
-         "h1_diff": spec_h1_diff, "q1_qfp": spec_q1_qfp}
+         "h1_diff": spec_h1_diff, "q1_qfp": spec_q1_qfp, "af1_autofan": spec_af1_autofan,
+         "v4_4layer": spec_v4_4layer, "b1_bga": spec_b1_bga}
+
+# 前沿谱:达可达前沿但未 DRC=0(诚实定界),不入默认 all(须单独 key 调起复现)。
+FRONTIER = {"b1_bga"}
 
 
 def _drc_total(drc):
@@ -203,7 +278,7 @@ def run_one(key, margin=120):
 
 def main():
     arg = sys.argv[1] if len(sys.argv) > 1 else "all"
-    keys = list(SPECS) if arg == "all" else [arg]
+    keys = [k for k in SPECS if k not in FRONTIER] if arg == "all" else [arg]
     results = {}
     for k in keys:
         try:
