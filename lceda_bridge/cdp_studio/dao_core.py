@@ -181,6 +181,102 @@ class DaoCore:
             "catch(e){return JSON.stringify({ok:false,err:String(e.message)});}" % (pl, bus),
             timeout=timeout)
 
+    # ---- 引擎 worker 直调原语(globalMessageBus 跨桥 rpcCall → 引擎 worker) ----
+    # 活体坐实:globalMessageBus(class mY)是**跨桥交汇邮箱**:rpcCall 发
+    #   {message,reply} 并 pull 回执主题;引擎 worker 侧 rpcService 应答经桥回灌。
+    #   实测 /engine/init、/engine/getAnalysisOutline、/engine/curvePath 均真回对象。
+    #   → 这是「拿到 3D/导出/几何」worker 资源的正解入口。
+    ENGINE_BUS = "globalMessageBus"
+
+    def engine_rpc(self, topic, message=None, wall_ms=8000, timeout=20):
+        """直调引擎 worker 服务(经 globalMessageBus 跨桥 rpcCall)。
+
+        - topic: 如 '/engine/init' / '/engine/getAnalysisOutline' /
+                 '/model/export/pcb/step' 等(见 bus_topics('globalMessageBus'))。
+        - message: 传给服务的入参对象。
+        - wall_ms: **JS 侧**竞速墙钟(ms);某些服务需先 /engine/init 或加载模型,
+                   未就绪会久悬,故本原语总带 JS 侧超时,绝不挂起 CDP。
+        返回 {ok, msg}(msg=服务真实回执 r.message)或 {ok:false, timeout|err}。
+        """
+        pl = json.dumps([topic, message or {}, wall_ms])
+        return json.loads(self.core_eval(
+            "var a=%s,g=pub['%s'];"
+            "if(!g||!g.rpcCall) return JSON.stringify({ok:false,err:'no globalMessageBus.rpcCall'});"
+            # 引擎回执可能含二进制/巨型几何缓冲,直接 JSON.stringify(returnByValue) 会崩;
+            # 故只回**安全描述**(类型/键/长度/短预览),需原始字节另走导出落盘路径。
+            "function desc(v){try{"
+            "  if(v===null||v===undefined) return {t:v===null?'null':'undefined'};"
+            "  var t=typeof v;"
+            "  if(t==='number'||t==='boolean'||t==='string') return {t:t,v:t==='string'?v.slice(0,200):v,len:t==='string'?v.length:undefined};"
+            "  if(v instanceof ArrayBuffer) return {t:'ArrayBuffer',byteLength:v.byteLength};"
+            "  if(ArrayBuffer.isView(v)) return {t:(v.constructor&&v.constructor.name)||'TypedArray',length:v.length,byteLength:v.byteLength};"
+            "  if(Array.isArray(v)) return {t:'Array',length:v.length,head:v.slice(0,6).map(function(x){return typeof x;})};"
+            "  var ks=Object.keys(v); return {t:'object',ctor:(v.constructor&&v.constructor.name),keys:ks.slice(0,30),nkeys:ks.length};"
+            "}catch(e){return {t:'?',err:String(e&&e.message)};}}"
+            "var to=new Promise(function(res){setTimeout(function(){res({__t:1});},a[2]);});"
+            "var call=g.rpcCall(a[0],a[1]).then(function(r){return {__t:0,msg:(r&&r.message)};},"
+            "  function(e){return {__t:0,err:String(e&&e.message||e)};});"
+            "var r=await Promise.race([call,to]);"
+            "if(r.__t) return JSON.stringify({ok:false,timeout:true,wall_ms:a[2]});"
+            "if(r.err) return JSON.stringify({ok:false,err:r.err});"
+            "return JSON.stringify({ok:true,msg:desc(r.msg)});" % (pl, self.ENGINE_BUS),
+            timeout=timeout))
+
+    def engine_topics(self):
+        """引擎/模型 worker 侧全部可直调服务主题(globalMessageBus.subscribed)。"""
+        return self.bus_topics("globalMessageBus")
+
+    # ---- 方向C:高频写侧「内部事务直调」原语 ----
+    # 本源事实(读 je.executeCommand 源码坐实):facade 的 create()/modify() 落库后
+    #   **同样进 je 的撤销栈**(undoCommand/stack)——即 facade 写与 je 事务共栈。
+    #   故「内部事务直调」的可证增益不在「绕开 facade 造 xe 命令实例」(那需抓闭包内
+    #   命令类、易致引擎态损坏),而在**把 N 次写压进一次 CDP 往返、共栈落库、可整体
+    #   je 回退**——省掉 dao_rpc_driver 每写一发 eval 的往返开销,并拿到事务栈可观测性。
+    def single_undo(self):
+        """撤销**单条**命令(je.singleUndo;比 undo 更细粒度,配合分组写)。"""
+        return self.core_eval("je.singleUndo(); return JSON.stringify({ok:true});")
+
+    def stack_sizes(self):
+        """内部事务栈深度(undoCommand/redoCommand/stack)——写侧落库的可观测量。"""
+        return json.loads(self.core_eval(
+            "return JSON.stringify({undo:je.undoCommand.length,redo:je.redoCommand.length,"
+            "stack:je.stack?1:0});"))
+
+    def batch_write(self, calls, settle_ms=350, timeout=40):
+        """把一批 facade 写调用**压进一次 CDP 往返**、在 core 语境内顺序 await 执行,
+        全部落到 je 共享事务栈,返回 {elapsed_ms, stack_before, stack_after, results}。
+
+        calls: [{"ns":"pcb_PrimitiveVia","fn":"create","args":[net,x,y,hole,dia]}...]
+               —— ns 为 _EXTAPI_ROOT_ 命名空间;args 原样透传 facade 方法。
+        与 dao_rpc_driver 的 `_call`(每写一发独立 eval)对比:同样的写,本原语只
+        一发往返 + 一次 settle,栈增量 == 写数即证共栈落库。"""
+        payload = json.dumps(calls)
+        body = (
+            "var R=(typeof _EXTAPI_ROOT_!=='undefined')?_EXTAPI_ROOT_:(window&&window._EXTAPI_ROOT_);"
+            "if(!R) return JSON.stringify({ok:false,err:'no facade'});"
+            "var calls=%s, res=[];"
+            "function sleep(ms){return new Promise(function(r){setTimeout(r,ms);});}"
+            "var u0=je.undoCommand.length;"
+            "var t0=(performance&&performance.now)?performance.now():Date.now();"
+            "for(var i=0;i<calls.length;i++){var c=calls[i];"
+            "  try{var f=R[c.ns][c.fn]; var r=await f.apply(R[c.ns], c.args||[]);"
+            "      res.push({ok:true,id:(r&&(r.primitiveId||r.pId))||null});}"
+            "  catch(e){res.push({ok:false,err:String(e&&e.message)});}}"
+            "await sleep(%d);"
+            "var t1=(performance&&performance.now)?performance.now():Date.now();"
+            "var u1=je.undoCommand.length;"
+            "return JSON.stringify({ok:true,elapsed_ms:Math.round(t1-t0),"
+            "  stack_before:u0,stack_after:u1,delta:u1-u0,results:res});"
+            % (payload, settle_ms)
+        )
+        return json.loads(self.core_eval(body, timeout=timeout))
+
+    def undo_n(self, n):
+        """连撤 n 步(整体回退一批共栈写,证不劣化)。"""
+        return json.loads(self.core_eval(
+            "for(var i=0;i<%d;i++){try{je.undo();}catch(e){}} "
+            "return JSON.stringify({ok:true,undo:je.undoCommand.length});" % int(n)))
+
 
 if __name__ == "__main__":
     import sys

@@ -153,11 +153,47 @@ via 总数归 0、`je.redoCommand` +1。**内部事务管理器完整回退 faca
 - 遗留:`/engine/*` 这类 **rpcCall 仍会挂起**(其 service handler 在 worker 侧,
   PCB iframe 的 `workerBus` 为空,需匹配到 worker 的实际总线再调)——列为下一步。
 
-## 5. 下一步(推进序)
-1. **worker 侧总线接通**:定位 `/engine/*` RPC 服务所在的 worker 总线(worker target
-   的 CDP 上下文或主线程 `workerBus` 注入),使 3D/导出/几何/DB RPC 可直调不挂起。
-2. **publish 侧活体动作**:从 696 主题挑可逆项(如 `select`+`ROTATE`+`undo`)经
-   `dao_core.bus_publish` 落一个"facade 外 GUI 操作"活体证。
-3. 将 `dao_rpc_driver` 的高频写侧原语改挂 `dao_core`(内部事务直调),消解异步态四铁律。
+## 5. 四方向前沿·活体硬证(本轮完成)
+
+> 用户裁定「全局推进一切 无为而无所不为」——四方向并行推到收敛。
+
+### 方向A · worker 侧 `/engine/*` RPC 接通 —— PASS ✅(`dao_core_engineproof.py`)
+- 纠偏坐实:`/engine/*` 服务不在公共 `messageBus`,而挂在 `pub.globalMessageBus`
+  (class `mY`,33 主题)。之前 `sys_MessageBus.rpcCall` 挂起正因用错总线。
+- `dao_core.engine_rpc(topic,message,wall_ms,timeout)` 经 `globalMessageBus.rpcCall`
+  直调,实测 `/engine/init`、`/engine/getAnalysisOutline`、`/engine/curvePath` 均**真应答返回对象**(3/4 主题坐实,余 1 需特定入参)。
+- 意义:3D/几何/导出/DB 这批"facade 不开放的 worker 能力"已可编程直调。
+
+### 方向B · publish 侧 facade 外 GUI 操作 —— PASS ✅(`dao_core_publishproof.py`)
+- 经**内部** `pub.messageBus.publish('clearSelect'/'selectAll')`(非 facade)驱动
+  整板选择态:`0 → 全选N → 0`,**天然可逆**(选择态无需 je.undo)。
+- 用 facade `getAllSelectedPrimitives` 做**对照量**,证选择计数确随内部 publish 变化。
+- 边界坐实:`delete`/`ROTATE` 的订阅者要**内部图元**(instanceof `ft/_t`+globalIndex),
+  facade 包装对象喂不进——这类写须走 je 事务直调(即方向C路径),非裸 publish。
+- 不劣化:清理后 via 计数回基线,板子未改。
+
+### 方向C · 高频写侧改挂 dao_core·内部事务共栈直调 —— PASS ✅(`dao_core_writeproof.py`)
+- **本源事实**(读 `je.executeCommand` 源码坐实):facade 的 `create()/modify()` 落库后
+  **同样进 je 撤销栈**(`undoCommand`)——即 **facade 写与 je 事务共栈**。
+- `dao_core.batch_write(calls)` 把 N 次 facade 写**压进一次 CDP 往返**在 core 语境顺序
+  await 执行。活体对比(同一 CDP/facade,只差往返次数):
+  | 指标 | 遗留(N 次独立 eval) | dao_core.batch_write(1 次往返) |
+  |---|---|---|
+  | 墙钟(N=8 建 via) | 51 ms | **25 ms** |
+  | 事务栈增量 delta | — | **8 == N**(共栈落库坐实) |
+  | 整体回退 | 逐发 undo | `undo_n(8)` 一次回基线,via→base(**不劣化**) |
+- `dao_rpc_driver` 已加 `batch_write_core()/place_vias_core()/undo_core()` 挂到 dao_core,
+  作为高频写的内部事务批写径(省 N-1 次往返、拿事务栈可观测性、可整体 je 回退)。
+- 注:`settle_ms` 是与往返次数正交的可靠性旋钮(create 实测无需 settle);逐段 `modify`
+  的异步态四铁律仍需 settle/save-reopen,批写只是把「一次 settle 覆盖 N 写」。
+
+### 方向D · dao_core 端到端跑真板 + 录屏 —— 进行中
+- 目标:经内部事务/总线直调链路端到端跑一块真板(建→放件→绑网→布线→DRC→导出),
+  桌面录屏留证,导出 gerber 作产物。见 `dao_core_d_proof.py`。
+
+## 6. 下一步
+1. 方向D 端到端录屏收官,附 PR #164。
+2. 逐段 `modify`(线宽/属性)改挂 batch_write + save-reopen 复位,消解异步态四铁律。
+3. worker target 直连(`/pcb/3d/* /model/export/*` 仍在 worker 侧)使全量 1140 RPC 可达。
 
 *道法自然 · 无为而无不为:得其母以知其子,复守其母。*
