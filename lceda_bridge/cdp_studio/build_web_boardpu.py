@@ -193,12 +193,17 @@ def spec_b1_bga():
     A1..H8)外圈 28 球各串一阻向外扇出,内 36 球留 NC。全由 auto_fanout 同一原语驱动——
     读真实球坐标按边就近逃逸,零手填坐标(auto_fanout 原语本身已由 af1_autofan DRC=0 证成)。
 
-    **诚实边界(本会话三度硬实测·确定性结论)**:web dao_board 建的是**双层**板,原生自动
-    布线在 2 层上把 28 球逃逸到 27/28——角球 H8(S27)始终无法逃逸(DRC=1 Connection Error,
-    tracks 恒收敛于 226/vias 44,加大 settle 等待与扇出间距均不改变结果 → 几何/层数边界,非超时)。
-    桌面 DAO_BGA1 达 DRC=0 是因其用 **4 层铜**(copper_layers=4)+ freerouting 更强布线器。
-    故本谱定为前沿:auto_fanout 可达 27/28;补齐需给 web dao_board **多层板**能力(下一前沿)。
-    因未达 DRC=0,**不入默认 all 谱**(见 FRONTIER),仅可单独调起复现该边界。"""
+    **诚实边界(本会话多度硬实测·确定性结论)**:28 球逃逸恒达 27/28——角球 H8(S27)始终
+    无法逃逸(DRC=1 Connection Error,U1_H8 与 Rf_S27 两焊盘无铜相连)。已逐一排除各因:
+      · 非超时:autoroute 改轮询至收敛(settle),tracks 稳定后仍缺该网;
+      · 非扇出间距:offset 520→680、step 140→220 均不改变结果;
+      · **非层数**:本会话已给 web dao_board 补上 `copper_layers` 真能力(实测置 4 层生效,
+        tracks 226→184/vias 44→40,走内层),但角球仍 S27 未通 → 2 层/4 层同界。
+    结论:此为 web **原生 GUI 自动布线器的布线质量上限**(角球被周圈已布线包死,原生器不回退重排);
+    桌面 DAO_BGA1 达 DRC=0 是因其用 **freerouting**(更强的可回退布线器)。补齐该角球需引入
+    freerouting 级布线器到 web 通道(下一前沿),非本原语/层数所能及。
+    故 b1_bga 定为前沿谱(copper_layers=4,展示新多层能力 + 定界),经 FRONTIER 排除出默认
+    all(保持 all 全绿),仅可单独调起复现该边界。auto_fanout 原语本身已由 af1_autofan DRC=0 证成。"""
     rows = "ABCDEFGH"
     af = {}
     k = 0
@@ -209,7 +214,7 @@ def spec_b1_bga():
                 k += 1
     return BoardSpec(name="DaoWeb_B1_BGA64", parts=[("U1", "BGA64", (0, 0))], nets={},
                      auto_fanout={"U1": af}, fanout_query=R,
-                     fanout_offset=680, fanout_depth_step=220)
+                     fanout_offset=680, fanout_depth_step=220, copper_layers=4)
 
 
 SPECS = {"s1_rc": spec_s1_rc, "m1_rcnet": spec_m1_rcnet, "ic_ne555": spec_ic_ne555,

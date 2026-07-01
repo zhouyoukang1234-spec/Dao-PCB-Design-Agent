@@ -45,7 +45,8 @@ class BoardSpec:
     """
 
     def __init__(self, name, parts, nets, introduction="", ground_pour=False, net_widths=None, diff_pairs=None,
-                 auto_fanout=None, fanout_query="0603WAF1002T5E", fanout_offset=420, fanout_depth_step=180):
+                 auto_fanout=None, fanout_query="0603WAF1002T5E", fanout_offset=420, fanout_depth_step=180,
+                 copper_layers=2):
         self.name = name
         self.parts = parts
         self.nets = nets
@@ -59,6 +60,7 @@ class BoardSpec:
         self.fanout_query = fanout_query
         self.fanout_offset = fanout_offset      # 焊盘沿逃逸方向向外的基础距离(栅格单位)
         self.fanout_depth_step = fanout_depth_step  # 同边多脚逐脚加深,错开避免抢道
+        self.copper_layers = int(copper_layers)  # 铜层数(2/4/6…);多层给密板(如 BGA 逃逸)让出内层,布线器更易收敛
 
     def pin_count_hint(self):
         """每个器件在 nets 里被引用到的最大引脚号(用于放件后粗校验引脚数是否够)。"""
@@ -328,6 +330,17 @@ class BoardBuilder:
         f.reload_and_reopen(self.state["project"], self.state["pcb"])
         f.prepare_pcb_nets()
         time.sleep(2)
+        nlay = getattr(self, "_copper_layers", 2) or 2
+        layers_set = None
+        if nlay and nlay != 2:
+            try:
+                f.set_copper_layer_count(int(nlay)); time.sleep(1)
+                f.eda.call("pcb_Document.save", timeout=20); time.sleep(1)
+                f.reload_and_reopen(self.state["project"], self.state["pcb"])
+                f.prepare_pcb_nets(); time.sleep(2)
+                layers_set = f.get_copper_layer_count()
+            except Exception as e:
+                layers_set = "ERR:" + str(e)[:60]
         dps = getattr(self, "_diff_pairs", []) or []
         diff = None
         if dps:
@@ -360,7 +373,7 @@ class BoardBuilder:
         out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                (out_base or self.state.get("name", "Dao")) + "_fab")
         exp = f.export_all(out_dir, base=out_base or self.state.get("name", "Dao"))
-        return {"outline": bo, "diff": diff, "widened": widened, "route": route, "pour": pour, "drc": drc, "export_dir": out_dir,
+        return {"outline": bo, "layers": layers_set, "diff": diff, "widened": widened, "route": route, "pour": pour, "drc": drc, "export_dir": out_dir,
                 "export": {k: (v.get("size") if isinstance(v, dict) else v) for k, v in exp.items()}}
 
     # ---- 一键全流程 ----
@@ -373,6 +386,7 @@ class BoardBuilder:
         self._ground_pour = getattr(spec, "ground_pour", False)
         self._net_widths = getattr(spec, "net_widths", {})
         self._diff_pairs = getattr(spec, "diff_pairs", [])
+        self._copper_layers = getattr(spec, "copper_layers", 2)
         report["route_export"] = self.route_export(out_base=spec.name, margin=margin)
         return report
 
