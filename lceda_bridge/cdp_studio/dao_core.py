@@ -122,7 +122,7 @@ class DaoCore:
         body 应是一段以 return 收尾的函数体。"""
         pref = self.locate_frame()
         wrapped = (
-            "(function(){var DAO=%s.__DAO_CORE__; if(!DAO) return JSON.stringify({__dao_err:'no core'});"
+            "(async function(){var DAO=%s.__DAO_CORE__; if(!DAO) return JSON.stringify({__dao_err:'no core'});"
             "var je=DAO.je, pub=DAO.pub; %s })()" % (pref, body)
         )
         return self._raw_eval(wrapped, by_value=by_value, timeout=timeout)
@@ -152,6 +152,34 @@ class DaoCore:
         return self.core_eval(
             "var a=%s; try{pub.publish(a[0],a[1]);return JSON.stringify({ok:true});}"
             "catch(e){return JSON.stringify({ok:false,err:String(e.message)});}" % payload)
+
+    # ---- 私有/具名总线原语(pub 是总线枢纽 class nZ,持多条子总线) ----
+    # 已活体测绘:pub.messageBus(696 topics)/globalMessageBus(33)/messageBus2/
+    #             workerBus/windowBridge,均带 publish/subscribe/rpcCall/rpcService。
+    BUSES = ("messageBus", "globalMessageBus", "messageBus2", "workerBus", "windowBridge")
+
+    def bus_topics(self, bus="messageBus"):
+        """返回具名内部总线的**活体订阅主题**(callable 私有频道目录)。"""
+        return json.loads(self.core_eval(
+            "var b=pub['%s']; if(!b||!b.subscribed) return JSON.stringify([]);"
+            "return JSON.stringify(Object.keys(b.subscribed).sort());" % bus))
+
+    def bus_publish(self, topic, args=None, bus="messageBus"):
+        """在**指定内部总线**上 publish(触发 facade 未开放的内部操作)。"""
+        payload = json.dumps([topic, args or []])
+        return self.core_eval(
+            "var a=%s,b=pub['%s']; if(!b) return JSON.stringify({ok:false,err:'no bus'});"
+            "try{b.publish(a[0],a[1]);return JSON.stringify({ok:true});}"
+            "catch(e){return JSON.stringify({ok:false,err:String(e.message)});}" % (payload, bus))
+
+    def bus_rpc(self, topic, payload=None, bus="messageBus", timeout=15):
+        """在**指定内部总线**上 rpcCall(私有频道 RPC,先匹配对的 bus 再调)。"""
+        pl = json.dumps([topic, payload or {}])
+        return self.core_eval(
+            "var a=%s,b=pub['%s']; if(!b||!b.rpcCall) return JSON.stringify({ok:false,err:'no rpcCall'});"
+            "try{var r=await b.rpcCall(a[0],a[1]);return JSON.stringify({ok:true,ret:r});}"
+            "catch(e){return JSON.stringify({ok:false,err:String(e.message)});}" % (pl, bus),
+            timeout=timeout)
 
 
 if __name__ == "__main__":

@@ -132,9 +132,32 @@ via 总数归 0、`je.redoCommand` +1。**内部事务管理器完整回退 faca
 未存盘**。坐实:dao_core 暴露的 L2 命令管理器确能编程直调并作用于真实引擎状态,
 印证"用户能做的(撤销/事务)我经内部管理器也能做,不改本体存盘、不劣化"。
 
+## 4.5 内部总线活体测绘(私有频道已定位)—— 本轮完成 ✅
+`pub`(class `nZ`)是**总线枢纽**,持多条子总线(即之前苦寻的"私有频道"):
+
+| 子总线 | 类 | 活体主题数 | 能力 |
+|---|---|---|---|
+| `pub.messageBus` | eQe | **696** | publish/subscribe/rpcCall/rpcService/rpcReply |
+| `pub.globalMessageBus` | mY | 33 | 同上;主题为 `/engine/*`(字体/格式/toPcb 等 RPC 服务) |
+| `pub.messageBus2` | iQe | 2 | rpcCall/rpcService |
+| `pub.workerBus` | — | (PCB iframe 内为空) | worker 侧服务 |
+| `pub.windowBridge` | QJe | 6 | postMessage/processRemoteMessage(跨窗桥) |
+
+- **696 个 messageBus 主题**含大量"用户能做但 facade 不开放"的内部操作:
+  `select/selectAll/copy/paste/ROTATE/WireWidth/globalCommand/toggleRouteMode/`
+  `rebuildConnectCopper/startPlane·endPlane(覆铜)/teardrop*/GridSetting/`
+  `INIT_PCB_CONFIG/…`——经 `pub.messageBus.publish(topic,args)` 即可直触。
+  (全量见 `_core_bus_live_topics.txt`,dao_core `bus_topics()` 活体可取。)
+- **纠偏坐实**:之前 `sys_MessageBus.rpcCall` 挂起,正因用错了总线。私有频道就是
+  `pub` 上这几条具名子总线。`dao_core.bus_publish/bus_rpc(bus=...)` 已参数化选总线。
+- 遗留:`/engine/*` 这类 **rpcCall 仍会挂起**(其 service handler 在 worker 侧,
+  PCB iframe 的 `workerBus` 为空,需匹配到 worker 的实际总线再调)——列为下一步。
+
 ## 5. 下一步(推进序)
-1. 定位私有总线频道(路径甲总线侧):把 1140 RPC 主题按 `createPrivateMessageBus`
-   频道归位,开放 3D/导出/DB worker 直调。
-2. 将 `dao_rpc_driver` 的高频写侧原语改挂 `dao_core`(内部事务直调),消解异步态四铁律。
+1. **worker 侧总线接通**:定位 `/engine/*` RPC 服务所在的 worker 总线(worker target
+   的 CDP 上下文或主线程 `workerBus` 注入),使 3D/导出/几何/DB RPC 可直调不挂起。
+2. **publish 侧活体动作**:从 696 主题挑可逆项(如 `select`+`ROTATE`+`undo`)经
+   `dao_core.bus_publish` 落一个"facade 外 GUI 操作"活体证。
+3. 将 `dao_rpc_driver` 的高频写侧原语改挂 `dao_core`(内部事务直调),消解异步态四铁律。
 
 *道法自然 · 无为而无不为:得其母以知其子,复守其母。*
