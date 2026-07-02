@@ -29,7 +29,7 @@ EEXT_NAME = sys.argv[2] if len(sys.argv) > 2 else 'lceda-bridge.eext'
 
 # ── 应被排除的文件/目录 ──
 EXCLUDE_PATTERNS = {
-    '__pycache__', '.git', '.vscode', 'node_modules',
+    '__pycache__', '.git', '.vscode', 'node_modules', 'proof',
     '.DS_Store', 'Thumbs.db', '.edaignore', '.gitignore',
 }
 EXCLUDE_SUFFIXES = {'.py', '.pyc'}

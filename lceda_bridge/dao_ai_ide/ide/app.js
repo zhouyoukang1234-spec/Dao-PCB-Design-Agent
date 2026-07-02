@@ -65,19 +65,29 @@
     abort: false,
   };
 
-  // 首次:内置一条通用提示词
-  if (!state.prompts.length) {
-    var pid = uid();
-    state.prompts = [{ id: pid, name: "PCB 设计助手(默认)", body:
+  // 内置默认提示词(带版本,升级时自动替换旧默认、不动用户自建)
+  var DEFAULT_PROMPT_ID = "p_default_v2";
+  var DEFAULT_PROMPT_BODY =
       "你是嵌入在嘉立创EDA专业版中的资深 PCB/原理图设计 AI 助手。你能通过工具直接驱动 EDA 引擎:\n"
-      + "- 用 eda_call(namespace, method, args) 调用官方 EXTAPI(94 命名空间/749 方法)。\n"
-      + "- 常用: dmt_Project.getCurrentProjectInfo、dmt_Pcb.getCurrentPcbInfo、dmt_Board.getAllBoardsInfo、"
-      + "sys_Environment.getEditorCurrentVersion、sys_Message.showToastMessage(msg)、pcb_* 图元/网络/DRC/制造、sch_* 原理图。\n"
-      + "- 修改类操作前先用 get_context 了解当前工程/板;不确定方法名时先小步试探并读回结果。\n"
-      + "回答用中文,简洁务实。需要执行操作时直接调用工具,不要只描述。" }];
-    state.activePrompt = pid;
+      + "- 用 eda_call(namespace, method, args) 调用官方 EXTAPI(94 命名空间/749 方法),args 为参数数组。\n"
+      + "- 态势感知: get_context / dmt_Project.getCurrentProjectInfo / dmt_Pcb.getCurrentPcbInfo / dmt_Board.getAllBoardsInfo。\n"
+      + "- 已验证的方法签名(务必按此调用,坐标单位 mil):\n"
+      + "  · 放过孔: pcb_PrimitiveVia.create args=[net, x, y, holeDiameter, diameter],如 [\"\", 3000, 3000, 11.8, 23.6]\n"
+      + "  · 数过孔: pcb_PrimitiveVia.getAll args=[] → 返回数组,length 即总数\n"
+      + "  · 弹提示: sys_Message.showToastMessage args=[文本] (或直接用 toast 工具)\n"
+      + "  · 版本: sys_Environment.getEditorCurrentVersion args=[]\n"
+      + "- 图元命名空间形如 pcb_PrimitiveVia/pcb_PrimitiveLine/pcb_PrimitiveComponent…,通用方法 create/delete/modify/get/getAll/getAllPrimitiveId。\n"
+      + "- 不确定方法名时先小步试探并读回结果;某方法报「不是函数」说明名字不存在,换 getAll 等通用名重试。\n"
+      + "回答用中文,简洁务实。需要执行操作时直接调用工具,不要只描述。";
+  (function ensureDefaultPrompt() {
+    var hasV2 = state.prompts.some(function (p) { return p.id === DEFAULT_PROMPT_ID; });
+    // 去掉旧版默认(名字相同且非用户自建 id)
+    state.prompts = state.prompts.filter(function (p) { return p.id === DEFAULT_PROMPT_ID || p.name !== "PCB 设计助手(默认)"; });
+    if (!hasV2) state.prompts.unshift({ id: DEFAULT_PROMPT_ID, name: "PCB 设计助手(默认)", body: DEFAULT_PROMPT_BODY });
+    if (!state.activePrompt || !state.prompts.some(function (p) { return p.id === state.activePrompt; }))
+      state.activePrompt = DEFAULT_PROMPT_ID;
     save(K.prompts, state.prompts); save(K.activePrompt, state.activePrompt);
-  }
+  })();
 
   // ─── DOM ────────────────────────────────────────────────────────────────
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -348,7 +358,7 @@
     setBusy(true);
 
     try {
-      var maxIters = 8;
+      var maxIters = 24;
       for (var iter = 0; iter < maxIters; iter++) {
         if (state.abort) break;
         var reply = await callLLM(model, s);
@@ -364,6 +374,11 @@
           tc._result = res.out; tc._error = res.error;
           s.messages.push({ role: "tool", tool_call_id: tc.id, name: tc.function.name, content: res.out });
         }
+        persistSessions(); renderChat();
+      }
+      var lastM = s.messages[s.messages.length - 1];
+      if (lastM && lastM.role !== "assistant") {
+        s.messages.push({ role: "assistant", content: "⚠ 已达单轮工具调用步数上限(" + maxIters + "),对话暂停。可继续发消息让我接着做。" });
         persistSessions(); renderChat();
       }
     } catch (e) {
