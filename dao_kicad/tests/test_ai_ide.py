@@ -251,6 +251,15 @@ def test_default_registry_exposes_move_and_drc():
     assert "kicad_move" in names and "kicad_drc" in names
 
 
+def test_dispatch_unknown_tool_lists_available():
+    reg = tools.ToolRegistry()
+    reg.register("kicad_move", lambda ref: {"ok": True})
+    reg.register("kicad_save", lambda: {"ok": True})
+    r = reg.dispatch("nonexistent_tool", {})
+    assert r["ok"] is False
+    assert "kicad_move" in r["error"] and "kicad_save" in r["error"]
+
+
 def test_access_api_focus_save_endpoints_and_conn_info(tmp_path):
     import json as _json
     import urllib.request

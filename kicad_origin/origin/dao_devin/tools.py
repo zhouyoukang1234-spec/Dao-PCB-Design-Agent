@@ -96,7 +96,10 @@ KICAD_TOOLS: List[Dict[str, Any]] = [
             "description": (
                 "在活体内核进程内执行一段 pcbnew Python 代码 (可通达全部 SWIG 类/"
                 "方法), 直改这块活着的板并回传真实回值。这是 KiCad 的通用工具原语——"
-                "移动件/浇铜/加过孔/查坐标皆经此。代码里 `board` 已绑定当前活板。"
+                "浇铜/加过孔/查坐标等皆经此。代码里 `board` 已绑定当前活板。"
+                "常用 API: len(board.GetFootprints()) 数件 (无 GetFootprintCount); "
+                "board.FindFootprintByReference('R1') 取件; pcbnew.ToMM/FromMM 单位。"
+                "移件用 kicad_move, 跑 DRC 用 kicad_drc (pcbnew 无 DRC 类)。"
             ),
             "parameters": {
                 "type": "object",
@@ -255,7 +258,9 @@ class ToolRegistry:
         std = normalize_name(name)
         handler = self._handlers.get(std)
         if handler is None:
-            return {"ok": False, "error": "未注册工具: %s" % name}
+            return {"ok": False,
+                    "error": "未注册工具: %s (可用: %s)"
+                             % (name, ", ".join(sorted(self._handlers)))}
         try:
             res = handler(**(args or {}))
         except TypeError as e:
