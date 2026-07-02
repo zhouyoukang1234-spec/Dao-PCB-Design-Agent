@@ -97,7 +97,7 @@ def run_turn(
                 "role": "tool",
                 "tool_call_id": tc.get("id", ""),
                 "name": name,
-                "content": json.dumps(result, ensure_ascii=False),
+                "content": json.dumps(result, ensure_ascii=False, default=repr),
             })
             step = {"tool": name, "args": args, "result": result}
             steps.append(step)
@@ -107,7 +107,14 @@ def run_turn(
                 except Exception:  # noqa: BLE001
                     pass
 
-    return {"ok": True, "content": "(达最大工具步数, 未收敛)", "messages": messages,
+    # 步数耗尽: 收回工具, 让模型就已有结果作最终总结 (不再静默截断)
+    messages.append({"role": "user", "content":
+                     "(系统) 工具步数已用尽。请基于以上已获得的工具结果, 直接给出最终回答。"})
+    resp = chat_fn(messages, name=channel_name, model=model, **chat_opts)
+    content = (resp.get("content") or "(达最大工具步数, 未收敛)") \
+        if resp.get("ok", True) else "(达最大工具步数, 未收敛)"
+    messages.append({"role": "assistant", "content": content})
+    return {"ok": True, "content": content, "messages": messages,
             "steps": steps, "truncated": True, "sp": sp_meta}
 
 

@@ -33,6 +33,47 @@ def _agent_auth_dict(a: "agent_core.AgentAuth") -> Dict[str, Any]:
             "quota": a.quota}
 
 
+def _find_kicad_cli() -> Optional[str]:
+    """跨平台定位 kicad-cli (面板装入 GUI 插件目录后无 kicad_origin 包, 需自持)。"""
+    import glob
+    import shutil as _sh
+    for name in ("kicad-cli", "kicad-cli.exe"):
+        p = _sh.which(name)
+        if p:
+            return p
+    candidates = sorted(glob.glob(r"C:\Program Files\KiCad\*\bin\kicad-cli.exe"),
+                        reverse=True)
+    candidates += ["/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"]
+    for c in candidates:
+        if Path(c).exists():
+            return c
+    return None
+
+
+def _run_drc_cli(board: str, report: str) -> Dict[str, Any]:
+    """直驱 `kicad-cli pcb drc` 并解析 JSON 报告 (零包依赖, GUI 插件内也可用)。"""
+    import json
+    import subprocess
+    cli = _find_kicad_cli()
+    if not cli:
+        return {"ok": False, "error": "kicad-cli 未找到"}
+    try:
+        r = subprocess.run([cli, "pcb", "drc", "--severity-all",
+                            "--format", "json", "-o", report, board],
+                           capture_output=True, text=True, timeout=180)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": str(e)}
+    if r.returncode != 0 or not Path(report).exists():
+        return {"ok": False, "error": (r.stderr or r.stdout)[-400:]}
+    try:
+        rep = json.loads(Path(report).read_text(encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"DRC 报告解析失败: {e}"}
+    return {"ok": True,
+            "violations": len(rep.get("violations", [])),
+            "unconnected": len(rep.get("unconnected_items", []))}
+
+
 @dataclass
 class BridgeState:
     auth: Optional[dc.Auth] = None
@@ -181,6 +222,84 @@ class DevinKiCadBridge:
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "error": str(e)}
 
+    def live_focus(self, refs: Any) -> Dict[str, Any]:
+        """在 KiCad 画布上选中 + 缩放定位到给定元件 (Agent 的「光标」)。
+
+        仅 GUI 内活体 (GuiLive) 支持画布聚焦; 无头活体则明确报不支持, 不静默。"""
+        try:
+            live = self.live()
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": str(e)}
+        fn = getattr(live, "focus", None)
+        if fn is None:
+            return {"ok": False, "error": "当前活体不支持画布聚焦 (仅 KiCad GUI 内可用)"}
+        try:
+            return {"ok": True, "result": fn(refs)}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": str(e)}
+
+    def live_save(self) -> Dict[str, Any]:
+        """保存活板到其自身文件 (把「Ctrl+S」内化为工具, AI 无需触 GUI)。"""
+        return self.live_eval(
+            "pcbnew.SaveBoard(board.GetFileName(), board)")
+
+    def live_move(self, ref: str, dx_mm: float = 0.0, dy_mm: float = 0.0,
+                  x_mm: Optional[float] = None, y_mm: Optional[float] = None,
+                  rotate_deg: float = 0.0) -> Dict[str, Any]:
+        """移动/旋转活板上的封装 (相对 dx/dy 或绝对 x/y, mm), 回传前后坐标。
+
+        把「取位→算新位→SetPosition→回读验证」四步归为一次原子 eval,
+        避免上游模型手写多轮 SWIG 代码。"""
+        if x_mm is not None or y_mm is not None:
+            tx = ("pcbnew.FromMM(%r)" % float(x_mm)) if x_mm is not None else "_pos.x"
+            ty = ("pcbnew.FromMM(%r)" % float(y_mm)) if y_mm is not None else "_pos.y"
+        else:
+            tx = "_pos.x + pcbnew.FromMM(%r)" % float(dx_mm)
+            ty = "_pos.y + pcbnew.FromMM(%r)" % float(dy_mm)
+        lines = [
+            "fp = board.FindFootprintByReference(%r)" % ref,
+            "assert fp is not None, '无此封装: %s'" % ref,
+            "_pos = fp.GetPosition()",
+            "_before = [pcbnew.ToMM(_pos.x), pcbnew.ToMM(_pos.y)]",
+            "fp.SetPosition(pcbnew.VECTOR2I(int(%s), int(%s)))" % (tx, ty),
+        ]
+        if rotate_deg:
+            lines.append("fp.SetOrientationDegrees("
+                         "fp.GetOrientationDegrees() + %r)" % float(rotate_deg))
+        lines += [
+            "try:\n    pcbnew.Refresh()\nexcept Exception:\n    pass",
+            "_np = fp.GetPosition()",
+            "result = {'ref': %r, 'before_mm': _before, "
+            "'after_mm': [pcbnew.ToMM(_np.x), pcbnew.ToMM(_np.y)], "
+            "'rotation_deg': fp.GetOrientationDegrees()}" % ref,
+        ]
+        return self.live_eval("\n".join(lines))
+
+    def live_drc(self, out_dir: str = "") -> Dict[str, Any]:
+        """对活板跑真 kicad-cli DRC: 先落盘, 再裁决, 报告写进项目 out/
+        (project_state 的 drc_metrics 自动拾取, 全貌感知闭环)。"""
+        got = self.live_eval("board.GetFileName()")
+        if not got.get("ok"):
+            return got
+        f = got.get("result") or ""
+        if not f:
+            return {"ok": False, "error": "活板无文件路径 (先保存为 .kicad_pcb)"}
+        saved = self.live_save()
+        if not saved.get("ok"):
+            return saved
+        pd = self._resolve_project_dir()
+        out = Path(out_dir) if out_dir else ((pd / "out") if pd else Path(f).parent)
+        out.mkdir(parents=True, exist_ok=True)
+        report = out / "drc-live.json"
+        res = _run_drc_cli(str(f), str(report))
+        if not res.get("ok"):
+            return {"ok": False, "error": res.get("error") or "DRC 失败"}
+        return {"ok": True, "result": {
+            "report": str(report),
+            "violations": res.get("violations"),
+            "unconnected": res.get("unconnected"),
+        }}
+
     # ── 项目全貌感知面 (Agent 的眼睛) ──────────────────────────────────
     def _resolve_project_dir(self, project_dir: Optional[str] = None) -> Optional[Path]:
         if project_dir:
@@ -234,7 +353,12 @@ class DevinKiCadBridge:
         if self._access is not None:
             return self._access.info()
         self._access = AccessServer(self, host=host, port=port)
-        return self._access.start()
+        info = self._access.start()
+        try:
+            self._access.write_conn_info()
+        except Exception:  # noqa: BLE001
+            pass
+        return info
 
     def access_stop(self) -> Dict[str, Any]:
         if self._access is None:

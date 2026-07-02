@@ -28,6 +28,17 @@ ALIAS: Dict[str, str] = {
     "eval": "kicad_eval",
     "run_command": "kicad_eval",
     "bash": "kicad_eval",
+    "focus": "kicad_focus",
+    "highlight": "kicad_focus",
+    "select": "kicad_focus",
+    "goto": "kicad_focus",
+    "move": "kicad_move",
+    "move_footprint": "kicad_move",
+    "drc": "kicad_drc",
+    "check": "kicad_drc",
+    "run_drc": "kicad_drc",
+    "save": "kicad_save",
+    "save_board": "kicad_save",
     "summary": "kicad_board_summary",
     "read_board": "kicad_board_summary",
     "run_flow": "kicad_run_flow",
@@ -85,7 +96,10 @@ KICAD_TOOLS: List[Dict[str, Any]] = [
             "description": (
                 "在活体内核进程内执行一段 pcbnew Python 代码 (可通达全部 SWIG 类/"
                 "方法), 直改这块活着的板并回传真实回值。这是 KiCad 的通用工具原语——"
-                "移动件/浇铜/加过孔/查坐标皆经此。代码里 `board` 已绑定当前活板。"
+                "浇铜/加过孔/查坐标等皆经此。代码里 `board` 已绑定当前活板。"
+                "常用 API: len(board.GetFootprints()) 数件 (无 GetFootprintCount); "
+                "board.FindFootprintByReference('R1') 取件; pcbnew.ToMM/FromMM 单位。"
+                "移件用 kicad_move, 跑 DRC 用 kicad_drc (pcbnew 无 DRC 类)。"
             ),
             "parameters": {
                 "type": "object",
@@ -97,6 +111,78 @@ KICAD_TOOLS: List[Dict[str, Any]] = [
                 },
                 "required": ["code"],
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "kicad_focus",
+            "description": (
+                "在 KiCad 画布上选中并缩放定位到给定元件 (参考号列表), 让用户实时"
+                "看到你正指着哪个件——相当于把光标落到真实 PCB 上。讲解某件、定位"
+                "问题、或改动前, 先调它高亮聚焦; 用户即刻在画布上看见。无破坏性副作用。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "refs": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "元件参考号列表, 如 [\"R2\", \"C11\", \"U1\"]",
+                    }
+                },
+                "required": ["refs"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "kicad_move",
+            "description": (
+                "移动/旋转活板上的一个封装 (相对偏移 dx_mm/dy_mm 或绝对坐标 "
+                "x_mm/y_mm, 可附旋转), 画布即时刷新, 回传前后坐标供验证。"
+                "比手写 kicad_eval 代码更稳、一次原子完成。改完记得 kicad_save。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ref": {"type": "string", "description": "封装参考号, 如 R2"},
+                    "dx_mm": {"type": "number", "description": "水平相对偏移 (mm, 右为正)"},
+                    "dy_mm": {"type": "number", "description": "垂直相对偏移 (mm, 下为正)"},
+                    "x_mm": {"type": "number", "description": "绝对 X (mm, 与 dx 互斥)"},
+                    "y_mm": {"type": "number", "description": "绝对 Y (mm, 与 dy 互斥)"},
+                    "rotate_deg": {"type": "number", "description": "附加旋转角 (度, 逆时针)"},
+                },
+                "required": ["ref"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "kicad_drc",
+            "description": (
+                "对活板跑真 kicad-cli DRC (先自动落盘): 回传违规数/未连接数与报告"
+                "路径, 报告写进项目 out/ 供全貌感知拾取。改板后用它裁决, 比跑全流程快。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "out_dir": {"type": "string", "description": "报告输出目录 (缺省项目 out/)"}
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "kicad_save",
+            "description": (
+                "把活板保存到其自身 .kicad_pcb 文件 (Ctrl+S 内化为工具)。对板子做过"
+                "改动后调它落盘, 无需触碰 GUI。"
+            ),
+            "parameters": {"type": "object", "properties": {}},
         },
     },
     {
@@ -172,7 +258,9 @@ class ToolRegistry:
         std = normalize_name(name)
         handler = self._handlers.get(std)
         if handler is None:
-            return {"ok": False, "error": "未注册工具: %s" % name}
+            return {"ok": False,
+                    "error": "未注册工具: %s (可用: %s)"
+                             % (name, ", ".join(sorted(self._handlers)))}
         try:
             res = handler(**(args or {}))
         except TypeError as e:
@@ -210,6 +298,14 @@ def default_registry(bridge: Any) -> ToolRegistry:
                  lambda project_dir="": bridge.project_state(project_dir or None))
     reg.register("kicad_board_summary", lambda: bridge.live_summary())
     reg.register("kicad_eval", lambda code: bridge.live_eval(code))
+    reg.register("kicad_focus", lambda refs: bridge.live_focus(refs))
+    reg.register("kicad_move",
+                 lambda ref, dx_mm=0.0, dy_mm=0.0, x_mm=None, y_mm=None,
+                 rotate_deg=0.0: bridge.live_move(
+                     ref, dx_mm=dx_mm, dy_mm=dy_mm, x_mm=x_mm, y_mm=y_mm,
+                     rotate_deg=rotate_deg))
+    reg.register("kicad_drc", lambda out_dir="": bridge.live_drc(out_dir))
+    reg.register("kicad_save", lambda: bridge.live_save())
 
     def _run_flow(source: str, out_dir: str, route: bool = True, fab: bool = True) -> Dict[str, Any]:
         from kicad_origin.origin import native_flow  # 延迟导入 (KiCad 依赖)
