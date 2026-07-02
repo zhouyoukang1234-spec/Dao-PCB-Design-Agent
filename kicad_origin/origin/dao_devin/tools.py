@@ -32,6 +32,11 @@ ALIAS: Dict[str, str] = {
     "highlight": "kicad_focus",
     "select": "kicad_focus",
     "goto": "kicad_focus",
+    "move": "kicad_move",
+    "move_footprint": "kicad_move",
+    "drc": "kicad_drc",
+    "check": "kicad_drc",
+    "run_drc": "kicad_drc",
     "save": "kicad_save",
     "save_board": "kicad_save",
     "summary": "kicad_board_summary",
@@ -124,6 +129,45 @@ KICAD_TOOLS: List[Dict[str, Any]] = [
                     }
                 },
                 "required": ["refs"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "kicad_move",
+            "description": (
+                "移动/旋转活板上的一个封装 (相对偏移 dx_mm/dy_mm 或绝对坐标 "
+                "x_mm/y_mm, 可附旋转), 画布即时刷新, 回传前后坐标供验证。"
+                "比手写 kicad_eval 代码更稳、一次原子完成。改完记得 kicad_save。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ref": {"type": "string", "description": "封装参考号, 如 R2"},
+                    "dx_mm": {"type": "number", "description": "水平相对偏移 (mm, 右为正)"},
+                    "dy_mm": {"type": "number", "description": "垂直相对偏移 (mm, 下为正)"},
+                    "x_mm": {"type": "number", "description": "绝对 X (mm, 与 dx 互斥)"},
+                    "y_mm": {"type": "number", "description": "绝对 Y (mm, 与 dy 互斥)"},
+                    "rotate_deg": {"type": "number", "description": "附加旋转角 (度, 逆时针)"},
+                },
+                "required": ["ref"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "kicad_drc",
+            "description": (
+                "对活板跑真 kicad-cli DRC (先自动落盘): 回传违规数/未连接数与报告"
+                "路径, 报告写进项目 out/ 供全貌感知拾取。改板后用它裁决, 比跑全流程快。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "out_dir": {"type": "string", "description": "报告输出目录 (缺省项目 out/)"}
+                },
             },
         },
     },
@@ -250,6 +294,12 @@ def default_registry(bridge: Any) -> ToolRegistry:
     reg.register("kicad_board_summary", lambda: bridge.live_summary())
     reg.register("kicad_eval", lambda code: bridge.live_eval(code))
     reg.register("kicad_focus", lambda refs: bridge.live_focus(refs))
+    reg.register("kicad_move",
+                 lambda ref, dx_mm=0.0, dy_mm=0.0, x_mm=None, y_mm=None,
+                 rotate_deg=0.0: bridge.live_move(
+                     ref, dx_mm=dx_mm, dy_mm=dy_mm, x_mm=x_mm, y_mm=y_mm,
+                     rotate_deg=rotate_deg))
+    reg.register("kicad_drc", lambda out_dir="": bridge.live_drc(out_dir))
     reg.register("kicad_save", lambda: bridge.live_save())
 
     def _run_flow(source: str, out_dir: str, route: bool = True, fab: bool = True) -> Dict[str, Any]:

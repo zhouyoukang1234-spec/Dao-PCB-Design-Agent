@@ -171,6 +171,90 @@ def test_kicad_save_tool_alias_schema_and_bridge():
     assert r["ok"] is True
 
 
+def test_kicad_move_tool_schema_aliases_and_codegen():
+    schema = tools._SCHEMA_BY_NAME.get("kicad_move")
+    assert schema is not None
+    assert "ref" in schema["function"]["parameters"]["required"]
+    for a in ("move", "move_footprint"):
+        assert tools.normalize_name(a) == "kicad_move"
+    import kicad_origin.origin.dao_devin.bridge as br
+
+    seen = {}
+
+    class _Live:
+        def eval(self, code):
+            seen["code"] = code
+            return {"ref": "R2", "before_mm": [14.0, 10.0],
+                    "after_mm": [14.0, 18.0], "rotation_deg": 0.0}
+
+    b = br.DevinKiCadBridge(live_factory=lambda: _Live())
+    r = b.live_move("R2", dy_mm=8.0)
+    assert r["ok"] and r["result"]["after_mm"] == [14.0, 18.0]
+    # 相对偏移: dy 注入, dx 为 0
+    assert "FindFootprintByReference('R2')" in seen["code"]
+    assert "_pos.y + pcbnew.FromMM(8.0)" in seen["code"]
+    # 绝对坐标 + 旋转
+    b.live_move("U1", x_mm=25.0, y_mm=30.0, rotate_deg=90.0)
+    assert "pcbnew.FromMM(25.0)" in seen["code"]
+    assert "pcbnew.FromMM(30.0)" in seen["code"]
+    assert "SetOrientationDegrees" in seen["code"]
+
+
+def test_kicad_drc_tool_schema_aliases_and_bridge(tmp_path, monkeypatch):
+    schema = tools._SCHEMA_BY_NAME.get("kicad_drc")
+    assert schema is not None
+    for a in ("drc", "check", "run_drc"):
+        assert tools.normalize_name(a) == "kicad_drc"
+    import kicad_origin.origin.dao_devin.bridge as br
+    from kicad_origin.origin import native_ops as no
+
+    pcb = tmp_path / "board.kicad_pcb"
+    pcb.write_text("(kicad_pcb)")
+
+    class _Live:
+        def summary(self):
+            return {"board": {"file": str(pcb)}}
+
+        def eval(self, code):
+            return True  # save
+
+    class _FakeOps:
+        def drc(self, board, out, fmt="json", severity_all=True):
+            from pathlib import Path as _P
+            _P(out).write_text('{"violations": [], "unconnected_items": []}')
+            return no.OpResult("drc", True,
+                               detail={"violations": 0, "unconnected": 0})
+
+    monkeypatch.setattr(no, "NativeOps", lambda *a, **k: _FakeOps())
+    b = br.DevinKiCadBridge(live_factory=lambda: _Live())
+    r = b.live_drc(out_dir=str(tmp_path / "out"))
+    assert r["ok"] and r["result"]["violations"] == 0
+    assert (tmp_path / "out" / "drc-live.json").exists()
+
+
+def test_default_registry_exposes_move_and_drc():
+    class _Bridge:
+        def live_move(self, ref, **kw):
+            return {"ok": True, "result": {"ref": ref, **kw}}
+
+        def live_drc(self, out_dir=""):
+            return {"ok": True, "result": {"violations": 0}}
+
+    reg = tools.ToolRegistry()
+    b = _Bridge()
+    reg.register("kicad_move",
+                 lambda ref, dx_mm=0.0, dy_mm=0.0, x_mm=None, y_mm=None,
+                 rotate_deg=0.0: b.live_move(ref, dx_mm=dx_mm, dy_mm=dy_mm,
+                                             x_mm=x_mm, y_mm=y_mm,
+                                             rotate_deg=rotate_deg))
+    reg.register("kicad_drc", lambda out_dir="": b.live_drc(out_dir))
+    r = reg.dispatch("move", {"ref": "R2", "dy_mm": 8})
+    assert r["ok"] and r["result"]["ref"] == "R2"
+    assert reg.dispatch("drc", {})["ok"]
+    names = [s["function"]["name"] for s in reg.schemas()]
+    assert "kicad_move" in names and "kicad_drc" in names
+
+
 def test_access_api_focus_save_endpoints_and_conn_info(tmp_path):
     import json as _json
     import urllib.request

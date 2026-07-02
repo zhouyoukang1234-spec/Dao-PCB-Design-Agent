@@ -202,6 +202,64 @@ class DevinKiCadBridge:
         return self.live_eval(
             "pcbnew.SaveBoard(board.GetFileName(), board)")
 
+    def live_move(self, ref: str, dx_mm: float = 0.0, dy_mm: float = 0.0,
+                  x_mm: Optional[float] = None, y_mm: Optional[float] = None,
+                  rotate_deg: float = 0.0) -> Dict[str, Any]:
+        """移动/旋转活板上的封装 (相对 dx/dy 或绝对 x/y, mm), 回传前后坐标。
+
+        把「取位→算新位→SetPosition→回读验证」四步归为一次原子 eval,
+        避免上游模型手写多轮 SWIG 代码。"""
+        if x_mm is not None or y_mm is not None:
+            tx = ("pcbnew.FromMM(%r)" % float(x_mm)) if x_mm is not None else "_pos.x"
+            ty = ("pcbnew.FromMM(%r)" % float(y_mm)) if y_mm is not None else "_pos.y"
+        else:
+            tx = "_pos.x + pcbnew.FromMM(%r)" % float(dx_mm)
+            ty = "_pos.y + pcbnew.FromMM(%r)" % float(dy_mm)
+        lines = [
+            "fp = board.FindFootprintByReference(%r)" % ref,
+            "assert fp is not None, '无此封装: %s'" % ref,
+            "_pos = fp.GetPosition()",
+            "_before = [pcbnew.ToMM(_pos.x), pcbnew.ToMM(_pos.y)]",
+            "fp.SetPosition(pcbnew.VECTOR2I(int(%s), int(%s)))" % (tx, ty),
+        ]
+        if rotate_deg:
+            lines.append("fp.SetOrientationDegrees("
+                         "fp.GetOrientationDegrees() + %r)" % float(rotate_deg))
+        lines += [
+            "try:\n    pcbnew.Refresh()\nexcept Exception:\n    pass",
+            "_np = fp.GetPosition()",
+            "result = {'ref': %r, 'before_mm': _before, "
+            "'after_mm': [pcbnew.ToMM(_np.x), pcbnew.ToMM(_np.y)], "
+            "'rotation_deg': fp.GetOrientationDegrees()}" % ref,
+        ]
+        return self.live_eval("\n".join(lines))
+
+    def live_drc(self, out_dir: str = "") -> Dict[str, Any]:
+        """对活板跑真 kicad-cli DRC: 先落盘, 再裁决, 报告写进项目 out/
+        (project_state 的 drc_metrics 自动拾取, 全貌感知闭环)。"""
+        s = self.live_summary()
+        if not s.get("ok"):
+            return s
+        f = ((s.get("summary") or {}).get("board") or {}).get("file", "")
+        if not f:
+            return {"ok": False, "error": "活板无文件路径 (先保存为 .kicad_pcb)"}
+        saved = self.live_save()
+        if not saved.get("ok"):
+            return saved
+        from kicad_origin.origin.native_ops import NativeOps  # 延迟导入 (kicad-cli 依赖)
+        pd = self._resolve_project_dir()
+        out = Path(out_dir) if out_dir else ((pd / "out") if pd else Path(f).parent)
+        out.mkdir(parents=True, exist_ok=True)
+        report = out / "drc-live.json"
+        res = NativeOps().drc(str(f), str(report))
+        if not res.ok:
+            return {"ok": False, "error": res.error or "DRC 失败"}
+        return {"ok": True, "result": {
+            "report": str(report),
+            "violations": res.detail.get("violations"),
+            "unconnected": res.detail.get("unconnected"),
+        }}
+
     # ── 项目全貌感知面 (Agent 的眼睛) ──────────────────────────────────
     def _resolve_project_dir(self, project_dir: Optional[str] = None) -> Optional[Path]:
         if project_dir:
