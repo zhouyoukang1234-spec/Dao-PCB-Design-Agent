@@ -197,6 +197,11 @@ class DevinKiCadBridge:
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "error": str(e)}
 
+    def live_save(self) -> Dict[str, Any]:
+        """保存活板到其自身文件 (把「Ctrl+S」内化为工具, AI 无需触 GUI)。"""
+        return self.live_eval(
+            "pcbnew.SaveBoard(board.GetFileName(), board)")
+
     # ── 项目全貌感知面 (Agent 的眼睛) ──────────────────────────────────
     def _resolve_project_dir(self, project_dir: Optional[str] = None) -> Optional[Path]:
         if project_dir:
@@ -250,7 +255,12 @@ class DevinKiCadBridge:
         if self._access is not None:
             return self._access.info()
         self._access = AccessServer(self, host=host, port=port)
-        return self._access.start()
+        info = self._access.start()
+        try:
+            self._access.write_conn_info()
+        except Exception:  # noqa: BLE001
+            pass
+        return info
 
     def access_stop(self) -> Dict[str, Any]:
         if self._access is None:

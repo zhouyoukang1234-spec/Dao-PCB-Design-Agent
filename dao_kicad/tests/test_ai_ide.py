@@ -154,6 +154,61 @@ def test_bridge_live_focus_delegates_to_gui_live():
     assert r["ok"] and r["result"]["focused"] == ["U1"]
 
 
+def test_kicad_save_tool_alias_schema_and_bridge():
+    schema = tools._SCHEMA_BY_NAME.get("kicad_save")
+    assert schema is not None
+    for a in ("save", "save_board"):
+        assert tools.normalize_name(a) == "kicad_save"
+    import kicad_origin.origin.dao_devin.bridge as br
+
+    class _Live:
+        def eval(self, code):
+            assert "SaveBoard" in code
+            return True
+
+    b = br.DevinKiCadBridge(live_factory=lambda: _Live())
+    r = b.live_save()
+    assert r["ok"] is True
+
+
+def test_access_api_focus_save_endpoints_and_conn_info(tmp_path):
+    import json as _json
+    import urllib.request
+
+    from kicad_origin.origin.dao_devin.access_api import AccessServer
+
+    class _Bridge:
+        def live_focus(self, refs):
+            return {"ok": True, "result": {"focused": list(refs)}}
+
+        def live_save(self):
+            return {"ok": True, "result": True}
+
+        def journal(self, *a, **k):
+            pass
+
+    srv = AccessServer(_Bridge(), port=0, token="tok-t")
+    info = srv.start()
+    try:
+        conn = srv.write_conn_info(tmp_path / "kicad-access.json")
+        got = _json.loads(conn.read_text("utf-8"))
+        assert got["url"] == info["url"] and got["token"] == "tok-t"
+
+        def post(path, body):
+            req = urllib.request.Request(
+                info["url"] + path, data=_json.dumps(body).encode(),
+                headers={"Authorization": "Bearer tok-t",
+                         "Content-Type": "application/json"})
+            return _json.loads(urllib.request.urlopen(req, timeout=10).read())
+
+        r = post("/api/focus", {"refs": ["R2"]})
+        assert r["ok"] and r["result"]["focused"] == ["R2"]
+        r = post("/api/save", {})
+        assert r["ok"] is True
+    finally:
+        srv.stop()
+
+
 def test_registry_bad_args_errors_gracefully():
     reg = tools.ToolRegistry()
     reg.register("kicad_eval", lambda code: {"ok": True, "result": code})

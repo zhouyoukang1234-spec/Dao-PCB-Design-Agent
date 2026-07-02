@@ -210,6 +210,29 @@ if _HAS_GUI:
             self._stop_flag = None  # threading.Event 当回合进行中
             self.SetBackgroundColour(C_BG)
             self._build_ui()
+            self._auto_access()
+
+        def _auto_access(self) -> None:
+            """零配置自动拉起反向接入控制面 (太上下知有之):
+
+            面板一开, AI 控制面 (HTTP :8323) 即就位并把接入信息落盘
+            ~/.dao/kicad-access.json —— 云端 Agent 经隧道读一遍即可全无 GUI
+            直驱本源; 用户无需任何配置。失败不阻断面板 (仅状态行提示)。
+            """
+            import threading
+
+            def _work() -> None:
+                try:
+                    info = self.bridge.access_start()
+                    wx.CallAfter(self._access_started, info)
+                except Exception as e:  # noqa: BLE001
+                    wx.CallAfter(self.status.SetLabel, f"反向接入未就位: {e}")
+
+            threading.Thread(target=_work, daemon=True).start()
+
+        def _access_started(self, info: dict) -> None:
+            self.btn_access.SetValue(True)
+            self.status.SetLabel(f"就绪 — Ctrl+Enter 发送 · AI 接入面 {info['url']}")
 
         # ── UI 骨架 ──
         def _build_ui(self) -> None:
@@ -451,7 +474,7 @@ if _HAS_GUI:
                 try:
                     info = self.bridge.access_start()
                     self._say_meta(f"⚡ 反向接入已开: {info['url']}  "
-                                   f"(文档 {info['doc']} · token 见 ~/.dao/access-token)")
+                                   f"(文档 {info['doc']} · 接入信息 ~/.dao/kicad-access.json)")
                     self.status.SetLabel(f"反向接入: {info['url']}")
                 except Exception as e:  # noqa: BLE001
                     self._say(f"反向接入开启失败: {e}", C_ERR)
