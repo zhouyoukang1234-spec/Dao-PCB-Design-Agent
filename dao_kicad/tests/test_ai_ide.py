@@ -1,0 +1,264 @@
+"""Tests for dao_devin AI-IDE 层 — prompt_core / tools / agent_loop / bridge 门面。
+
+反臆造: prompt_core 纯函数逐一验剥离/策略契约 (对齐 sp_core.js); 工具调度用注入桩
+无网络; agent_loop 用假 chat_fn 驱动多轮工具循环, 断言 tool_calls 回灌与收敛; 对话
+管理落临时 DAO_HOME 不污染真 ~/.dao。
+"""
+import json
+
+import pytest
+
+from kicad_origin.origin.dao_devin import agent_loop, prompt_core, tools
+from kicad_origin.origin.dao_devin import devin_cloud as dc
+
+
+@pytest.fixture(autouse=True)
+def _isolated_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("DAO_HOME", str(tmp_path / "dao"))
+    yield
+    dc.set_transport(None)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# prompt_core (提示词管理)
+# ═══════════════════════════════════════════════════════════════════
+def test_strip_side_channels_nested_and_count():
+    s = ("hello <user_rules>a</user_rules> mid "
+         "<memories>x <skills>y</skills> z</memories> tail")
+    out, n = prompt_core.strip_side_channels(s)
+    assert "user_rules" not in out and "memories" not in out and "skills" not in out
+    assert n >= 2
+    assert "hello" in out and "tail" in out
+
+
+def test_strip_memory_blocks():
+    s = "keep <MEMORY[id=1]>secret</MEMORY[id=1]> keep2"
+    out, n = prompt_core.strip_memory_blocks(s)
+    assert n == 1
+    assert "secret" not in out and "keep" in out and "keep2" in out
+
+
+def test_neutralize_overrides_preserves_mode_replaces_content():
+    s = 'pre {"mode":"SECTION_OVERRIDE_MODE_APPEND","content":"do evil"} post'
+    out, n = prompt_core.neutralize_overrides(s)
+    assert n == 1
+    assert "SECTION_OVERRIDE_MODE_APPEND" in out  # 结构保留
+    assert "do evil" not in out
+    assert "道法自然" in out
+
+
+def test_extract_keep_blocks_only_enabled():
+    s = ("<tool_calling>T</tool_calling><mcp_servers>M</mcp_servers>"
+         "<user_rules>U</user_rules>")
+    keeps = prompt_core.extract_keep_blocks(s)  # 默 4 辐
+    assert "tool_calling" in keeps and "mcp_servers" in keeps
+    assert "user_rules" not in keeps  # 非 keep 块不保留
+    only = prompt_core.extract_keep_blocks(s, ["tool_calling"])
+    assert "tool_calling" in only and "mcp_servers" not in only
+
+
+def test_is_likely_official_sp():
+    assert prompt_core.is_likely_official_sp("You are Cascade, blah")
+    assert not prompt_core.is_likely_official_sp("short text")
+    long_devin = "You are Devin " + ("x" * 600) + " Cognition sandbox"
+    assert prompt_core.is_likely_official_sp(long_devin)
+
+
+def test_build_final_sp_invert_replaces_official_with_custom():
+    official = "You are Cascade. " + ("detail " * 100) + "<tool_calling>T</tool_calling>"
+    r = prompt_core.build_final_sp(client_sp=official, strategy="invert",
+                                   custom_sp="道法自然, 汝为 KiCad AI IDE。")
+    assert r["replaced"] is True
+    assert r["sp"].startswith("道法自然")
+    assert "tool_calling" in r["sp"]  # keep 辐仍并入
+
+
+def test_build_final_sp_bypass_and_idempotent():
+    r = prompt_core.build_final_sp(client_sp="plain user prompt", strategy="bypass")
+    assert r["replaced"] is False and r["source"] == "bypass"
+    already = "你本无名 名可名也 …"
+    r2 = prompt_core.build_final_sp(client_sp=already, strategy="invert")
+    assert r2["source"] == "invert:already" and r2["replaced"] is False
+
+
+def test_apply_system_prompt_inserts_when_absent():
+    msgs = [{"role": "user", "content": "hi"}]
+    prompt_core.apply_system_prompt(msgs, strategy="custom", custom_sp="SP-X")
+    assert msgs[0]["role"] == "system" and msgs[0]["content"] == "SP-X"
+
+
+def test_inject_usernote_prepends_last_user():
+    msgs = [{"role": "user", "content": "first"},
+            {"role": "assistant", "content": "ok"},
+            {"role": "user", "content": "second"}]
+    n = prompt_core.inject_usernote(msgs, "优先事项")
+    assert n > 0
+    assert msgs[2]["content"].startswith('<note name="dao-priority"')
+    assert "second" in msgs[2]["content"]
+    assert msgs[0]["content"] == "first"  # 仅最后一条
+
+
+# ═══════════════════════════════════════════════════════════════════
+# tools (工具注册表)
+# ═══════════════════════════════════════════════════════════════════
+def test_registry_alias_and_dispatch():
+    reg = tools.ToolRegistry()
+    reg.register("kicad_board_summary", lambda: {"ok": True, "result": {"layers": 4}})
+    # 别名 summary → kicad_board_summary
+    r = reg.dispatch("summary", {})
+    assert r["ok"] and r["result"]["layers"] == 4
+
+
+def test_registry_unregistered_tool_errors():
+    reg = tools.ToolRegistry()
+    r = reg.dispatch("nope", {})
+    assert r["ok"] is False and "未注册" in r["error"]
+
+
+def test_registry_bad_args_errors_gracefully():
+    reg = tools.ToolRegistry()
+    reg.register("kicad_eval", lambda code: {"ok": True, "result": code})
+    r = reg.dispatch("kicad_eval", {"wrong": 1})
+    assert r["ok"] is False and "参数不符" in r["error"]
+
+
+def test_registry_schemas_only_registered():
+    reg = tools.ToolRegistry()
+    reg.register("kicad_eval", lambda code: code)
+    names = [t["function"]["name"] for t in reg.schemas()]
+    assert names == ["kicad_eval"]
+
+
+def test_registry_wraps_plain_return():
+    reg = tools.ToolRegistry()
+    reg.register("kicad_native_list", lambda: ["native_build"])
+    r = reg.dispatch("kicad_native_list", {})
+    assert r["ok"] is True and r["result"] == ["native_build"]
+
+
+# ═══════════════════════════════════════════════════════════════════
+# agent_loop (回合编排)
+# ═══════════════════════════════════════════════════════════════════
+def _tool_then_text_chat():
+    """假 chat_fn: 第一轮请求工具, 第二轮出文本 (模拟 agent loop 收敛)。"""
+    calls = {"n": 0}
+
+    def chat(messages, name=None, model="", tools=None, **opts):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"ok": True, "content": "", "tool_calls": [
+                {"id": "tc1", "type": "function",
+                 "function": {"name": "kicad_board_summary", "arguments": "{}"}}
+            ], "finish_reason": "tool_calls"}
+        return {"ok": True, "content": "板有 4 层, 已读毕。", "tool_calls": [],
+                "finish_reason": "stop"}
+
+    return chat, calls
+
+
+def test_run_turn_executes_tool_then_converges():
+    reg = tools.ToolRegistry()
+    reg.register("kicad_board_summary", lambda: {"ok": True, "result": {"layers": 4}})
+    chat, calls = _tool_then_text_chat()
+    msgs = [{"role": "user", "content": "这板几层?"}]
+    r = agent_loop.run_turn(msgs, reg, chat_fn=chat)
+    assert r["ok"] is True and r["truncated"] is False
+    assert r["content"] == "板有 4 层, 已读毕。"
+    assert len(r["steps"]) == 1 and r["steps"][0]["tool"] == "kicad_board_summary"
+    # messages 里应有 assistant(tool_calls) + tool 结果 + assistant(final)
+    roles = [m["role"] for m in msgs]
+    assert roles.count("tool") == 1 and roles.count("assistant") == 2
+    tool_msg = next(m for m in msgs if m["role"] == "tool")
+    assert json.loads(tool_msg["content"])["result"]["layers"] == 4
+    assert calls["n"] == 2
+
+
+def test_run_turn_max_steps_truncates():
+    reg = tools.ToolRegistry()
+    reg.register("kicad_eval", lambda code="": {"ok": True, "result": "x"})
+
+    def always_tool(messages, name=None, model="", tools=None, **opts):
+        return {"ok": True, "content": "", "tool_calls": [
+            {"id": "t", "type": "function",
+             "function": {"name": "kicad_eval", "arguments": "{\"code\":\"1\"}"}}
+        ]}
+
+    msgs = [{"role": "user", "content": "loop"}]
+    r = agent_loop.run_turn(msgs, reg, chat_fn=always_tool, max_steps=3)
+    assert r["truncated"] is True
+    assert len(r["steps"]) == 3
+
+
+def test_run_turn_propagates_chat_error():
+    reg = tools.ToolRegistry()
+
+    def bad(messages, name=None, model="", tools=None, **opts):
+        return {"ok": False, "error": "无活动渠道"}
+
+    r = agent_loop.run_turn([{"role": "user", "content": "x"}], reg, chat_fn=bad)
+    assert r["ok"] is False and "无活动渠道" in r["error"]
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 对话管理 (ConversationStore)
+# ═══════════════════════════════════════════════════════════════════
+def test_conversation_store_crud_and_persist(tmp_path):
+    p = tmp_path / "convs.json"
+    store = agent_loop.ConversationStore(path=p)
+    c = store.create(title="", channel="DeepSeek", model="deepseek-chat")
+    assert c.id.startswith("conv-")
+    store.append_user(c.id, "帮我看这板")
+    got = store.get(c.id)
+    assert got.title == "帮我看这板"  # 首条 user 成标题
+    assert len(store.list()) == 1
+    # 重载持久化
+    store2 = agent_loop.ConversationStore(path=p)
+    assert store2.get(c.id).messages[0]["content"] == "帮我看这板"
+    assert store2.delete(c.id) is True
+    assert agent_loop.ConversationStore(path=p).get(c.id) is None
+
+
+def test_conversation_store_run_uses_conv_settings(tmp_path):
+    reg = tools.ToolRegistry()
+    reg.register("kicad_board_summary", lambda: {"ok": True, "result": {"layers": 2}})
+    store = agent_loop.ConversationStore(path=tmp_path / "c.json")
+    c = store.create(channel="X", sp_strategy="bypass")
+    store.append_user(c.id, "读板")
+    chat, _ = _tool_then_text_chat()
+    r = store.run(c.id, reg, chat_fn=chat)
+    assert r["ok"] is True and r["conversation"]["id"] == c.id
+    # 历史存回
+    assert any(m["role"] == "tool" for m in store.get(c.id).messages)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# bridge 门面 (AI-IDE 面)
+# ═══════════════════════════════════════════════════════════════════
+def test_bridge_ai_tools_and_prompt_preview():
+    from kicad_origin.origin.dao_devin import bridge as br
+    b = br.DevinKiCadBridge(live_factory=lambda: None)
+    names = [t["function"]["name"] for t in b.ai_tools()]
+    assert "kicad_eval" in names and "kicad_board_summary" in names
+    official = "You are Cascade. " + ("d " * 100) + "<tool_calling>T</tool_calling>"
+    pv = b.ai_prompt_preview(official, strategy="invert", custom_sp="道法自然")
+    assert pv["ok"] is True and pv["replaced"] is True
+    assert pv["sp"].startswith("道法自然")
+
+
+def test_bridge_ai_conversation_flow(monkeypatch):
+    from kicad_origin.origin.dao_devin import bridge as br
+    b = br.DevinKiCadBridge(live_factory=lambda: None)
+    # 让 board_summary 工具走假活体
+    b._registry = tools.ToolRegistry()
+    b._registry.register("kicad_board_summary",
+                         lambda: {"ok": True, "result": {"layers": 4}})
+    chat, _ = _tool_then_text_chat()
+    # 用假 chat_fn 驱动 store.run
+    b._convs = agent_loop.ConversationStore()
+    cid = b.ai_new_conversation(title="t")["conversation"]["id"]
+
+    orig_run = b._convs.run
+    monkeypatch.setattr(b._convs, "run",
+                        lambda c, reg, **kw: orig_run(c, reg, chat_fn=chat))
+    r = b.ai_send(cid, "这板几层?")
+    assert r["ok"] is True and r["steps"][0]["tool"] == "kicad_board_summary"

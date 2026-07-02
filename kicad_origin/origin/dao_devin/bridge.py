@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from . import accounts, agent_core, dao_proxy
+from . import accounts, agent_core, agent_loop, dao_proxy, prompt_core, tools
 from . import devin_cloud as dc
 
 
@@ -44,6 +44,8 @@ class DevinKiCadBridge:
         self.state = BridgeState()
         self._live_factory = live_factory
         self._live = None  # 活体会话句柄 (惰性)
+        self._registry = None  # AI-IDE 工具注册表 (惰性)
+        self._convs = None     # AI-IDE 对话管理 (惰性)
 
     # ── 账号面 ────────────────────────────────────────────────────────────
     def add_account(self, email: str, password: str = "", token: str = "",
@@ -174,6 +176,52 @@ class DevinKiCadBridge:
             return {"ok": True, "result": self.live().eval(code)}
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "error": str(e)}
+
+    # ── AI-IDE 面 (L4 · 提示词 + 工具 + 外接API 一体的 KiCad AI IDE) ─────────
+    def registry(self) -> "tools.ToolRegistry":
+        """惰性建 KiCad 工具注册表 (工具接到本 bridge 的活体能力)。"""
+        if self._registry is None:
+            self._registry = tools.default_registry(self)
+        return self._registry
+
+    def ai_tools(self) -> List[Dict[str, Any]]:
+        """列出暴给模型的 KiCad 工具 schema (function-call)。"""
+        return self.registry().schemas()
+
+    def convs(self) -> "agent_loop.ConversationStore":
+        """惰性建对话管理 (落 ~/.dao/ai-ide-conversations.json)。"""
+        if self._convs is None:
+            self._convs = agent_loop.ConversationStore()
+        return self._convs
+
+    def ai_conversations(self) -> List[Dict[str, Any]]:
+        return self.convs().list()
+
+    def ai_new_conversation(self, title: str = "", channel: str = "", model: str = "",
+                            sp_strategy: str = "bypass", custom_sp: str = "") -> Dict[str, Any]:
+        c = self.convs().create(title=title, channel=channel, model=model,
+                                sp_strategy=sp_strategy, custom_sp=custom_sp)
+        return {"ok": True, "conversation": c.summary()}
+
+    def ai_send(self, conversation_id: str, text: str,
+                max_steps: int = 8) -> Dict[str, Any]:
+        """AI IDE 主入口: 用户发一句 → 提示词+工具+外接API 一体 agent loop → 存回。"""
+        store = self.convs()
+        if not store.append_user(conversation_id, text):
+            return {"ok": False, "error": "无此对话: %s" % conversation_id}
+        return store.run(conversation_id, self.registry(), max_steps=max_steps)
+
+    def ai_delete_conversation(self, conversation_id: str) -> Dict[str, Any]:
+        return {"ok": self.convs().delete(conversation_id)}
+
+    def ai_prompt_preview(self, client_sp: str, strategy: str = "invert",
+                          custom_sp: str = "") -> Dict[str, Any]:
+        """预览提示词策略如何改写上游 SP (剥离元信息 + 最终 SP)。"""
+        strip = prompt_core.full_strip(client_sp)
+        built = prompt_core.build_final_sp(client_sp=client_sp, strategy=strategy,
+                                           custom_sp=custom_sp)
+        return {"ok": True, "strip": strip["meta"], "source": built["source"],
+                "replaced": built["replaced"], "sp": built["sp"]}
 
     def close(self) -> None:
         if self._live is not None:
