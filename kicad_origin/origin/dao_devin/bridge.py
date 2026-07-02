@@ -17,7 +17,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from . import accounts, agent_core, agent_loop, dao_proxy, prompt_core, tools
+from pathlib import Path
+
+from . import accounts, agent_core, agent_loop, dao_proxy, project_state, prompt_core, tools
 from . import devin_cloud as dc
 
 
@@ -46,6 +48,8 @@ class DevinKiCadBridge:
         self._live = None  # 活体会话句柄 (惰性)
         self._registry = None  # AI-IDE 工具注册表 (惰性)
         self._convs = None     # AI-IDE 对话管理 (惰性)
+        self._access = None    # 反向接入 HTTP 服务 (惰性)
+        self.project_dir: str = ""  # 项目根 (缺省从活板反推)
 
     # ── 账号面 ────────────────────────────────────────────────────────────
     def add_account(self, email: str, password: str = "", token: str = "",
@@ -177,6 +181,71 @@ class DevinKiCadBridge:
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "error": str(e)}
 
+    # ── 项目全貌感知面 (Agent 的眼睛) ──────────────────────────────────
+    def _resolve_project_dir(self, project_dir: Optional[str] = None) -> Optional[Path]:
+        if project_dir:
+            return Path(project_dir)
+        if self.project_dir:
+            return Path(self.project_dir)
+        live = self._live_if_open()
+        if live is None:
+            return None
+        try:
+            s = live.summary()
+            b = s.get("board") if isinstance(s, dict) else None
+            f = (b or {}).get("file", "")
+            return project_state.detect_project_dir(f) if f else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _live_if_open(self) -> Optional[Any]:
+        """仅取已开的活体会话 (感知是只读, 不为看一眼而起 daemon)。"""
+        if self._live is not None:
+            return self._live
+        if self._live_factory is not None:
+            try:
+                self._live = self._live_factory()
+                return self._live
+            except Exception:  # noqa: BLE001
+                return None
+        return None
+
+    def project_state(self, project_dir: Optional[str] = None) -> Dict[str, Any]:
+        """项目全貌: 一次调用拿全 (板况/DRC/流程/产物/git/动作日志)。"""
+        pd = self._resolve_project_dir(project_dir)
+        return project_state.snapshot(pd, live=self._live_if_open())
+
+    def project_state_markdown(self, project_dir: Optional[str] = None) -> str:
+        return project_state.render_markdown(self.project_state(project_dir))
+
+    def journal(self, action: str, detail: Any = "", actor: str = "agent") -> None:
+        """追记一条动作到项目日志 (失败静默 — 日志不阻断主链路)。"""
+        try:
+            pd = self._resolve_project_dir()
+            if pd:
+                project_state.journal(pd, {"actor": actor, "action": action,
+                                           "detail": str(detail)[:400]})
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ── 反向接入面 (本地 HTTP API 供云端 Agent 原生接入) ──────────────────
+    def access_start(self, port: int = 8323, host: str = "127.0.0.1") -> Dict[str, Any]:
+        from .access_api import AccessServer  # 延迟导入 (避循环)
+        if self._access is not None:
+            return self._access.info()
+        self._access = AccessServer(self, host=host, port=port)
+        return self._access.start()
+
+    def access_stop(self) -> Dict[str, Any]:
+        if self._access is None:
+            return {"ok": True, "running": False}
+        self._access.stop()
+        self._access = None
+        return {"ok": True, "running": False}
+
+    def access_info(self) -> Dict[str, Any]:
+        return self._access.info() if self._access else {"ok": True, "running": False}
+
     # ── AI-IDE 面 (L4 · 提示词 + 工具 + 外接API 一体的 KiCad AI IDE) ─────────
     def registry(self) -> "tools.ToolRegistry":
         """惰性建 KiCad 工具注册表 (工具接到本 bridge 的活体能力)。"""
@@ -203,13 +272,24 @@ class DevinKiCadBridge:
                                 sp_strategy=sp_strategy, custom_sp=custom_sp)
         return {"ok": True, "conversation": c.summary()}
 
-    def ai_send(self, conversation_id: str, text: str,
-                max_steps: int = 8) -> Dict[str, Any]:
-        """AI IDE 主入口: 用户发一句 → 提示词+工具+外接API 一体 agent loop → 存回。"""
+    def ai_send(self, conversation_id: str, text: str, max_steps: int = 8,
+                should_stop: Optional[Any] = None,
+                on_step: Optional[Any] = None) -> Dict[str, Any]:
+        """AI IDE 主入口: 用户发一句 → 提示词+工具+外接API 一体 agent loop → 存回。
+
+        should_stop/on_step 直透 agent_loop (面板停止钮 / 流式轨迹)。每步工具
+        调用自动追记进项目动作日志 (全貌感知的史料源)。"""
         store = self.convs()
         if not store.append_user(conversation_id, text):
             return {"ok": False, "error": "无此对话: %s" % conversation_id}
-        return store.run(conversation_id, self.registry(), max_steps=max_steps)
+
+        def _journal_step(step: Dict[str, Any]) -> None:
+            self.journal(step.get("tool", "?"), step.get("args", ""))
+            if on_step is not None:
+                on_step(step)
+
+        return store.run(conversation_id, self.registry(), max_steps=max_steps,
+                         should_stop=should_stop, on_step=_journal_step)
 
     def ai_delete_conversation(self, conversation_id: str) -> Dict[str, Any]:
         return {"ok": self.convs().delete(conversation_id)}

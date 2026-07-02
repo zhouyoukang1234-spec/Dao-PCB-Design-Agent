@@ -5,6 +5,7 @@
 read_file/edit/run_command…(见 devin-remote 的 `lsp_tools.js`); 我们专属于 KiCad,
 故工具集是 **KiCad 本源原子**:
 
+  * kicad_project_state  · 项目全貌 (板况/DRC/流程/产物/git/动作日志 一次拿全 — 眼睛)
   * kicad_board_summary  · 读活板摘要 (层数/元件/网/未连接)
   * kicad_eval           · 在活体内核进程内执行 pcbnew 代码 (通达全 7913 SWIG 面)
   * kicad_run_flow       · 跑全流程 (build→heal→route→fab), 真 DRC 裁决
@@ -33,6 +34,9 @@ ALIAS: Dict[str, str] = {
     "flow": "kicad_run_flow",
     "list_dir": "kicad_native_list",
     "ask": "devin_ask",
+    "state": "kicad_project_state",
+    "project_state": "kicad_project_state",
+    "read_project": "kicad_project_state",
 }
 
 
@@ -43,6 +47,26 @@ def normalize_name(name: str) -> str:
 
 # ── KiCad 工具 schema (OpenAI function-call 格式) ─────────────────────────
 KICAD_TOOLS: List[Dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "kicad_project_state",
+            "description": (
+                "读取整个 PCB 项目的实时全貌 (Agent 的眼睛): 板况(封装/走线/网/铜皮)"
+                "、最近 DRC 结果、全流程报告、产物(gerber/钻孔/可投厂)、git 进度、"
+                "最近动作日志。做任何改动前先看全貌, 避免盲人摸象。无副作用。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project_dir": {
+                        "type": "string",
+                        "description": "项目根目录 (缺省从活板文件自动反推)",
+                    }
+                },
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -182,6 +206,8 @@ def default_registry(bridge: Any) -> ToolRegistry:
     """
     reg = ToolRegistry()
 
+    reg.register("kicad_project_state",
+                 lambda project_dir="": bridge.project_state(project_dir or None))
     reg.register("kicad_board_summary", lambda: bridge.live_summary())
     reg.register("kicad_eval", lambda code: bridge.live_eval(code))
 

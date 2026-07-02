@@ -40,6 +40,8 @@ def run_turn(
     custom_sp: str = "",
     max_steps: int = _MAX_STEPS_DEFAULT,
     chat_fn: Optional[Callable[..., Dict[str, Any]]] = None,
+    should_stop: Optional[Callable[[], bool]] = None,
+    on_step: Optional[Callable[[Dict[str, Any]], None]] = None,
     **chat_opts: Any,
 ) -> Dict[str, Any]:
     """跑一个完整对话回合 (含多轮工具调用), 就地扩展 messages。
@@ -49,6 +51,9 @@ def run_turn(
 
     chat_fn 默认 dao_proxy.chat; 测试可注入桩。sp_strategy/custom_sp 交 prompt_core
     决定系统提示 (bypass=透传, custom=用户自定 SP, invert=检测官方 SP 即全替 …)。
+
+    should_stop: 每步前探询, 回 True 即优雅中止 (面板「停止」钮)。
+    on_step: 每执完一步工具即回调 (面板实时流式展示轨迹)。
     """
     if chat_fn is None:
         from . import dao_proxy
@@ -61,6 +66,9 @@ def run_turn(
     steps: List[Dict[str, Any]] = []
 
     for _ in range(max(1, max_steps)):
+        if should_stop is not None and should_stop():
+            return {"ok": True, "content": "(已停止)", "messages": messages,
+                    "steps": steps, "truncated": True, "stopped": True, "sp": sp_meta}
         resp = chat_fn(messages, name=channel_name, model=model, tools=tools, **chat_opts)
         if not resp.get("ok", True) and resp.get("error"):
             return {"ok": False, "error": resp.get("error"), "messages": messages,
@@ -91,7 +99,13 @@ def run_turn(
                 "name": name,
                 "content": json.dumps(result, ensure_ascii=False),
             })
-            steps.append({"tool": name, "args": args, "result": result})
+            step = {"tool": name, "args": args, "result": result}
+            steps.append(step)
+            if on_step is not None:
+                try:
+                    on_step(step)
+                except Exception:  # noqa: BLE001
+                    pass
 
     return {"ok": True, "content": "(达最大工具步数, 未收敛)", "messages": messages,
             "steps": steps, "truncated": True, "sp": sp_meta}
@@ -185,14 +199,17 @@ class ConversationStore:
 
     def run(self, cid: str, registry: ToolRegistry,
             chat_fn: Optional[Callable[..., Dict[str, Any]]] = None,
-            max_steps: int = _MAX_STEPS_DEFAULT) -> Dict[str, Any]:
+            max_steps: int = _MAX_STEPS_DEFAULT,
+            should_stop: Optional[Callable[[], bool]] = None,
+            on_step: Optional[Callable[[Dict[str, Any]], None]] = None) -> Dict[str, Any]:
         """对一个已存会话跑一回合 (承会话自带的 channel/model/sp 设置), 存回历史。"""
         conv = self._convs.get(cid)
         if not conv:
             return {"ok": False, "error": "无此对话: %s" % cid}
         r = run_turn(conv.messages, registry, channel_name=conv.channel or None,
                      model=conv.model, sp_strategy=conv.sp_strategy,
-                     custom_sp=conv.custom_sp, max_steps=max_steps, chat_fn=chat_fn)
+                     custom_sp=conv.custom_sp, max_steps=max_steps, chat_fn=chat_fn,
+                     should_stop=should_stop, on_step=on_step)
         conv.updated = time.time()
         self._save()
         r["conversation"] = conv.summary()
