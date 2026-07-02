@@ -382,6 +382,24 @@ def test_run_turn_max_steps_truncates():
     assert len(r["steps"]) == 3
 
 
+def test_run_turn_max_steps_final_summary_without_tools():
+    reg = tools.ToolRegistry()
+    reg.register("kicad_eval", lambda code="": {"ok": True, "result": "x"})
+
+    def chat(messages, name=None, model="", tools=None, **opts):
+        if tools:  # 带工具集 → 一直请求工具
+            return {"ok": True, "content": "", "tool_calls": [
+                {"id": "t", "type": "function",
+                 "function": {"name": "kicad_eval", "arguments": "{\"code\":\"1\"}"}}
+            ]}
+        return {"ok": True, "content": "基于已得结果: 答案是 x。"}
+
+    msgs = [{"role": "user", "content": "loop"}]
+    r = agent_loop.run_turn(msgs, reg, chat_fn=chat, max_steps=2)
+    assert r["truncated"] is True and len(r["steps"]) == 2
+    assert r["content"] == "基于已得结果: 答案是 x。"
+
+
 def test_run_turn_propagates_chat_error():
     reg = tools.ToolRegistry()
 
