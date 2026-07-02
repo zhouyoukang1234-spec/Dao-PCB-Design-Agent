@@ -28,6 +28,12 @@ ALIAS: Dict[str, str] = {
     "eval": "kicad_eval",
     "run_command": "kicad_eval",
     "bash": "kicad_eval",
+    "focus": "kicad_focus",
+    "highlight": "kicad_focus",
+    "select": "kicad_focus",
+    "goto": "kicad_focus",
+    "save": "kicad_save",
+    "save_board": "kicad_save",
     "summary": "kicad_board_summary",
     "read_board": "kicad_board_summary",
     "run_flow": "kicad_run_flow",
@@ -97,6 +103,39 @@ KICAD_TOOLS: List[Dict[str, Any]] = [
                 },
                 "required": ["code"],
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "kicad_focus",
+            "description": (
+                "在 KiCad 画布上选中并缩放定位到给定元件 (参考号列表), 让用户实时"
+                "看到你正指着哪个件——相当于把光标落到真实 PCB 上。讲解某件、定位"
+                "问题、或改动前, 先调它高亮聚焦; 用户即刻在画布上看见。无破坏性副作用。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "refs": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "元件参考号列表, 如 [\"R2\", \"C11\", \"U1\"]",
+                    }
+                },
+                "required": ["refs"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "kicad_save",
+            "description": (
+                "把活板保存到其自身 .kicad_pcb 文件 (Ctrl+S 内化为工具)。对板子做过"
+                "改动后调它落盘, 无需触碰 GUI。"
+            ),
+            "parameters": {"type": "object", "properties": {}},
         },
     },
     {
@@ -210,6 +249,8 @@ def default_registry(bridge: Any) -> ToolRegistry:
                  lambda project_dir="": bridge.project_state(project_dir or None))
     reg.register("kicad_board_summary", lambda: bridge.live_summary())
     reg.register("kicad_eval", lambda code: bridge.live_eval(code))
+    reg.register("kicad_focus", lambda refs: bridge.live_focus(refs))
+    reg.register("kicad_save", lambda: bridge.live_save())
 
     def _run_flow(source: str, out_dir: str, route: bool = True, fab: bool = True) -> Dict[str, Any]:
         from kicad_origin.origin import native_flow  # 延迟导入 (KiCad 依赖)

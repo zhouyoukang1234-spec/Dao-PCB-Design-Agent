@@ -115,6 +115,100 @@ def test_registry_unregistered_tool_errors():
     assert r["ok"] is False and "未注册" in r["error"]
 
 
+def test_kicad_focus_tool_dispatch_alias_and_schema():
+    # schema 已声明 kicad_focus 且带 refs 参数
+    schema = tools._SCHEMA_BY_NAME.get("kicad_focus")
+    assert schema and "refs" in schema["function"]["parameters"]["properties"]
+    # 别名归一
+    for a in ("focus", "highlight", "select", "goto"):
+        assert tools.normalize_name(a) == "kicad_focus"
+    # dispatch 直达处理器 (画布聚焦), 回传命中列表
+    reg = tools.ToolRegistry()
+    reg.register("kicad_focus", lambda refs: {"ok": True, "result": {"focused": list(refs)}})
+    r = reg.dispatch("focus", {"refs": ["R2", "C11"]})
+    assert r["ok"] and r["result"]["focused"] == ["R2", "C11"]
+
+
+def test_bridge_live_focus_reports_when_unsupported():
+    # 无头活体 (无 focus 方法) → 明确报不支持, 不静默
+    import kicad_origin.origin.dao_devin.bridge as br
+
+    class _HeadlessLive:  # 无 focus
+        def summary(self):
+            return {}
+
+    b = br.DevinKiCadBridge(live_factory=lambda: _HeadlessLive())
+    r = b.live_focus(["R2"])
+    assert r["ok"] is False and "不支持" in r["error"]
+
+
+def test_bridge_live_focus_delegates_to_gui_live():
+    import kicad_origin.origin.dao_devin.bridge as br
+
+    class _GuiLive:
+        def focus(self, refs):
+            return {"focused": list(refs), "missing": []}
+
+    b = br.DevinKiCadBridge(live_factory=lambda: _GuiLive())
+    r = b.live_focus(["U1"])
+    assert r["ok"] and r["result"]["focused"] == ["U1"]
+
+
+def test_kicad_save_tool_alias_schema_and_bridge():
+    schema = tools._SCHEMA_BY_NAME.get("kicad_save")
+    assert schema is not None
+    for a in ("save", "save_board"):
+        assert tools.normalize_name(a) == "kicad_save"
+    import kicad_origin.origin.dao_devin.bridge as br
+
+    class _Live:
+        def eval(self, code):
+            assert "SaveBoard" in code
+            return True
+
+    b = br.DevinKiCadBridge(live_factory=lambda: _Live())
+    r = b.live_save()
+    assert r["ok"] is True
+
+
+def test_access_api_focus_save_endpoints_and_conn_info(tmp_path):
+    import json as _json
+    import urllib.request
+
+    from kicad_origin.origin.dao_devin.access_api import AccessServer
+
+    class _Bridge:
+        def live_focus(self, refs):
+            return {"ok": True, "result": {"focused": list(refs)}}
+
+        def live_save(self):
+            return {"ok": True, "result": True}
+
+        def journal(self, *a, **k):
+            pass
+
+    srv = AccessServer(_Bridge(), port=0, token="tok-t")
+    info = srv.start()
+    try:
+        conn = srv.write_conn_info(tmp_path / "kicad-access.json")
+        got = _json.loads(conn.read_text("utf-8"))
+        assert got["url"] == info["url"] and got["token"] == "tok-t"
+
+        def post(path, body):
+            req = urllib.request.Request(
+                info["url"] + path, data=_json.dumps(body).encode(),
+                headers={"Authorization": "Bearer tok-t",
+                         "Content-Type": "application/json"})
+            return _json.loads(urllib.request.urlopen(req, timeout=10).read())
+
+        r = post("/api/focus", {"refs": ["R2"]})
+        assert r["ok"] and r["result"]["focused"] == ["R2"]
+        r = post("/api/save", {})
+        assert r["ok"] is True
+    finally:
+        srv.stop()
+
+
 def test_registry_bad_args_errors_gracefully():
     reg = tools.ToolRegistry()
     reg.register("kicad_eval", lambda code: {"ok": True, "result": code})
