@@ -63,6 +63,21 @@
   .toolcall pre{white-space:pre-wrap;word-break:break-word;color:var(--muted);max-height:180px;overflow:auto}
   .toolcall .res{color:var(--accent2)}
   .toolcall .res.err{color:var(--danger)}
+  .toolcall summary{cursor:pointer;color:var(--tool);font-weight:700;user-select:none}
+  .toolcall summary .st{margin-left:6px;color:var(--accent2)}
+  .toolcall.err summary .st{color:var(--danger)}
+  .msg.assistant .content{white-space:normal}
+  .content .h1,.content .h2,.content .h3,.content .h4{font-weight:700;margin:8px 0 4px;color:#e8f0ff}
+  .content .h1{font-size:15px}.content .h2{font-size:14px}.content .h3{font-size:13px}
+  .content .li{margin:2px 0}
+  .content .sp{height:6px}
+  .content code{background:var(--bg3);border:1px solid var(--line);border-radius:4px;padding:0 4px;font-family:Consolas,monospace;font-size:11px}
+  .content pre.code{background:var(--bg3);border:1px solid var(--line);border-radius:6px;padding:8px;margin:6px 0;overflow:auto;font-family:Consolas,monospace;font-size:11px;white-space:pre-wrap}
+  .content table.md{border-collapse:collapse;margin:6px 0;font-size:12px}
+  .content table.md td{border:1px solid var(--line);padding:4px 8px}
+  .content table.md tr:first-child td{background:var(--bg3);font-weight:700}
+  .typing{color:var(--muted);font-style:italic;padding:6px 12px;animation:pulse 1.2s infinite}
+  @keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
   #composer{border-top:1px solid var(--line);padding:10px 14px;background:var(--bg2)}
   #composer .wrap{display:flex;gap:8px;align-items:flex-end}
   #input{flex:1;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:9px 11px;font-size:13px;resize:none;max-height:160px;font-family:inherit;line-height:1.5}

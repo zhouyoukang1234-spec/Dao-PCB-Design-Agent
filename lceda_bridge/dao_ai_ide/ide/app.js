@@ -66,7 +66,7 @@
   };
 
   // 内置默认提示词(带版本,升级时自动替换旧默认、不动用户自建)
-  var DEFAULT_PROMPT_ID = "p_default_v2";
+  var DEFAULT_PROMPT_ID = "p_default_v3";
   var DEFAULT_PROMPT_BODY =
       "你是嵌入在嘉立创EDA专业版中的资深 PCB/原理图设计 AI 助手。你能通过工具直接驱动 EDA 引擎:\n"
       + "- 用 eda_call(namespace, method, args) 调用官方 EXTAPI(94 命名空间/749 方法),args 为参数数组。\n"
@@ -77,6 +77,8 @@
       + "  · 弹提示: sys_Message.showToastMessage args=[文本] (或直接用 toast 工具)\n"
       + "  · 版本: sys_Environment.getEditorCurrentVersion args=[]\n"
       + "- 图元命名空间形如 pcb_PrimitiveVia/pcb_PrimitiveLine/pcb_PrimitiveComponent…,通用方法 create/delete/modify/get/getAll/getAllPrimitiveId。\n"
+      + "- 任何设计任务开始前,先调 project_digest 工具一次性掌握工程全貌(板/层/网络/器件/图元/DRC),再动手操作。\n"
+      + "- 跑DRC: pcb_Drc.check args=[] 返回 false 即 0 违规;存盘: pcb_Document.save args=[]。\n"
       + "- 不确定方法名时先小步试探并读回结果;某方法报「不是函数」说明名字不存在,换 getAll 等通用名重试。\n"
       + "回答用中文,简洁务实。需要执行操作时直接调用工具,不要只描述。";
   (function ensureDefaultPrompt() {
@@ -166,19 +168,54 @@
     if (m.content) html += '<div class="content"></div>';
     if (m.tool_calls && m.tool_calls.length) {
       m.tool_calls.forEach(function (tc) {
-        html += '<div class="toolcall"><div class="h">⚙ ' + esc(tc.function.name) + '</div><pre>' +
-          esc(tc.function.arguments || "") + '</pre>' +
-          (tc._result !== undefined ? '<pre class="res' + (tc._error ? ' err' : '') + '">' + esc(tc._result) + '</pre>' : '') +
-          '</div>';
+        var ok = tc._result === undefined ? "…" : (tc._error ? "✗" : "✓");
+        html += '<details class="toolcall' + (tc._error ? ' err' : '') + '"><summary>⚙ ' + esc(tc.function.name) +
+          ' <span class="st">' + ok + '</span></summary><pre>' + esc(tc.function.arguments || "") + '</pre>' +
+          (tc._result !== undefined ? '<pre class="res' + (tc._error ? ' err' : '') + '">' + esc(String(tc._result).slice(0, 4000)) + '</pre>' : '') +
+          '</details>';
       });
     }
     html += "</div>";
     wrap.innerHTML = html;
-    if (m.content) wrap.querySelector(".content").textContent = m.content;
+    if (m.content) {
+      var c = wrap.querySelector(".content");
+      if (m.role === "assistant") c.innerHTML = mdRender(m.content); else c.textContent = m.content;
+    }
     el.msgs.appendChild(wrap);
     return wrap;
   }
   function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
+  // 轻量 markdown 渲染(标题/粗体/行内码/围栏码/表格/列表) — 先 esc 再替换,无 XSS
+  function mdRender(src) {
+    var t = esc(src);
+    var out = [], lines = t.split("\n"), inCode = false, inTable = false;
+    function closeTable() { if (inTable) { out.push("</table>"); inTable = false; } }
+    for (var i = 0; i < lines.length; i++) {
+      var L = lines[i];
+      if (/^```/.test(L)) { closeTable(); inCode = !inCode; out.push(inCode ? "<pre class='code'>" : "</pre>"); continue; }
+      if (inCode) { out.push(L + "\n"); continue; }
+      if (/^\s*\|.*\|\s*$/.test(L)) {
+        if (/^\s*\|[\s:|-]+\|\s*$/.test(L)) continue; // 分隔行
+        if (!inTable) { out.push("<table class='md'>"); inTable = true; }
+        var cells = L.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|");
+        out.push("<tr>" + cells.map(function (c) { return "<td>" + inline(c.trim()) + "</td>"; }).join("") + "</tr>");
+        continue;
+      }
+      closeTable();
+      var h = L.match(/^(#{1,4})\s+(.*)$/);
+      if (h) { out.push("<div class='h" + h[1].length + "'>" + inline(h[2]) + "</div>"); continue; }
+      var li = L.match(/^\s*[-*·]\s+(.*)$/);
+      if (li) { out.push("<div class='li'>• " + inline(li[1]) + "</div>"); continue; }
+      out.push(L ? "<div>" + inline(L) + "</div>" : "<div class='sp'></div>");
+    }
+    closeTable();
+    if (inCode) out.push("</pre>");
+    function inline(s) {
+      return s.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>");
+    }
+    return out.join("");
+  }
 
   // ─── 模型管理 ─────────────────────────────────────────────────────────
   function renderModelSelect() {
@@ -303,6 +340,12 @@
         args: { type: "array", description: "参数数组, 无参传 []", items: {} }
       }, required: ["namespace", "method"] } } },
     { type: "function", function: {
+      name: "project_digest",
+      description: "一次性获取当前PCB工程全貌(像看文件一样):工程/板/铜层数/网络清单/各类图元统计(器件位号与坐标、过孔、导线、焊盘…)/板框包络/实时DRC状态。任何设计任务开始前先调此工具掌握全局态势,避免盲人摸象。",
+      parameters: { type: "object", properties: {
+        detail: { type: "string", description: "summary(默认,统计+器件清单) 或 full(附各图元坐标明细)" }
+      } } } },
+    { type: "function", function: {
       name: "get_context",
       description: "获取当前 EDA 上下文:编辑器版本、当前工程、当前板、所有板信息。用于开始操作前的态势感知。",
       parameters: { type: "object", properties: {} } } },
@@ -312,6 +355,34 @@
       parameters: { type: "object", properties: { message: { type: "string" } }, required: ["message"] } } },
   ];
 
+  // 项目全貌摄取(盲人摸象 → 一目了然)
+  async function buildDigest(detail) {
+    var dg = { generatedAt: new Date().toISOString() };
+    var g = function (ns, m, a) { return edaCall(ns, m, a || []).catch(function () { return null; }); };
+    dg.version = await g("sys_Environment", "getEditorCurrentVersion");
+    dg.project = await g("dmt_Project", "getCurrentProjectInfo");
+    dg.pcb = await g("dmt_Pcb", "getCurrentPcbInfo");
+    dg.copperLayers = await g("pcb_Layer", "getTheNumberOfCopperLayers");
+    dg.nets = await g("pcb_Net", "getAllNetsName") || await g("pcb_Net", "getAllNetName");
+    var types = ["Component", "Via", "Line", "Arc", "Pad", "Fill", "Pour", "String", "Region", "Polyline"];
+    dg.primitives = {};
+    for (var i = 0; i < types.length; i++) {
+      var all = await g("pcb_Primitive" + types[i], "getAll");
+      if (!all) continue;
+      var entry = { count: all.length };
+      if (types[i] === "Component") entry.items = all.map(function (c) {
+        return { designator: c.designator || c.name, x: c.x, y: c.y, layer: c.layer, footprint: c.footprintName || c.device || undefined };
+      });
+      else if (detail === "full") entry.items = all;
+      dg.primitives[types[i]] = entry;
+    }
+    dg.drcRealtime = await g("pcb_Drc", "getRealTimeDrcStatus");
+    var bbox = await g("pcb_Primitive", "getPrimitiveBoardLine");
+    if (bbox) dg.boardOutline = bbox;
+    updateContextBar({ project: dg.project, pcb: dg.pcb });
+    return dg;
+  }
+
   async function runTool(name, argStr) {
     var args = {};
     try { args = argStr ? JSON.parse(argStr) : {}; } catch (e) { return { error: true, out: "参数解析失败: " + e.message }; }
@@ -319,6 +390,10 @@
       if (name === "eda_call") {
         var r = await edaCall(args.namespace, args.method, args.args || []);
         return { error: false, out: JSON.stringify(r) };
+      }
+      if (name === "project_digest") {
+        var dg = await buildDigest(args.detail || "summary");
+        return { error: false, out: JSON.stringify(dg) };
       }
       if (name === "get_context") {
         var ctx = {};
@@ -416,6 +491,12 @@
     el.send.textContent = b ? "停止" : "发送";
     el.send.classList.toggle("stop", b);
     el.input.disabled = false;
+    var tip = document.getElementById("typing");
+    if (b && !tip) {
+      tip = document.createElement("div"); tip.id = "typing"; tip.className = "typing";
+      tip.textContent = "AI 思考/执行工具中…";
+      el.msgs.appendChild(tip); el.msgs.scrollTop = el.msgs.scrollHeight;
+    } else if (!b && tip) tip.remove();
   }
 
   // ─── 状态栏 ──────────────────────────────────────────────────────────
