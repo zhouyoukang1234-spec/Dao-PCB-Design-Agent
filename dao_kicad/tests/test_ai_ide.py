@@ -251,6 +251,16 @@ def test_default_registry_exposes_move_and_drc():
     assert "kicad_move" in names and "kicad_drc" in names
 
 
+def test_eval_last_expr_returns_tail_expression():
+    ls = pytest.importorskip("kicad_origin.origin._live_server")  # 依赖 pcbnew
+    _eval_last_expr = ls._eval_last_expr
+    assert _eval_last_expr("1 + 2", {}) == 3
+    assert _eval_last_expr("x = 5\nx * 2", {}) == 10          # 多语句末尾表达式
+    assert _eval_last_expr("result = 7\ny = 1", {}) == 7      # 末尾非表达式 → result
+    ns: dict = {}
+    assert _eval_last_expr("def f():\n    return 4\nf()", ns) == 4
+
+
 def test_dispatch_unknown_tool_lists_available():
     reg = tools.ToolRegistry()
     reg.register("kicad_move", lambda ref: {"ok": True})

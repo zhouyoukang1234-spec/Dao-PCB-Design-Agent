@@ -37,6 +37,24 @@ PANEL_PKG_FILES = (
 )
 
 
+def _eval_last_expr(code: str, ns: dict) -> Any:
+    """执行代码并回传值: 单表达式直 eval; 多语句执前段、回传末尾表达式;
+    末尾非表达式则回 ns['result'] (若有)。与 _live_server._eval_last_expr 同构。"""
+    import ast
+    try:
+        return eval(code, ns)                         # noqa: S307 — 活板直驱即本意
+    except SyntaxError:
+        pass
+    tree = ast.parse(code)
+    if tree.body and isinstance(tree.body[-1], ast.Expr):
+        head = ast.Module(body=tree.body[:-1], type_ignores=[])
+        exec(compile(head, "<live>", "exec"), ns)     # noqa: S102
+        tail = ast.Expression(tree.body[-1].value)
+        return eval(compile(tail, "<live>", "eval"), ns)  # noqa: S307
+    exec(code, ns)                                    # noqa: S102
+    return ns.get("result")
+
+
 def _tool_brief(r: Any) -> Any:
     """工具回值 → 轨迹行一句话摘要 (按常见键位智能取要点)。"""
     if not isinstance(r, dict):
@@ -103,11 +121,7 @@ if _HAS_GUI:
             def _run() -> None:
                 try:
                     g = {"pcbnew": pcbnew, "board": pcbnew.GetBoard()}
-                    try:
-                        box["result"] = eval(code, g)  # noqa: S307 — 活板直驱即本意
-                    except SyntaxError:
-                        exec(code, g)  # noqa: S102
-                        box["result"] = g.get("result")
+                    box["result"] = _eval_last_expr(code, g)
                 except Exception as e:  # noqa: BLE001
                     box["error"] = str(e)
                 finally:
