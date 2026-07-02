@@ -400,6 +400,29 @@ def test_run_turn_max_steps_final_summary_without_tools():
     assert r["content"] == "基于已得结果: 答案是 x。"
 
 
+def test_run_turn_tool_result_nonjsonable_degrades_to_repr():
+    class _Swig:
+        def __repr__(self):
+            return "<FOOTPRINT R1>"
+
+    reg = tools.ToolRegistry()
+    reg.register("kicad_eval", lambda code="": {"ok": True, "result": _Swig()})
+
+    def chat(messages, name=None, model="", tools=None, **opts):
+        if len([m for m in messages if m["role"] == "tool"]) == 0 and tools:
+            return {"ok": True, "content": "", "tool_calls": [
+                {"id": "t", "type": "function",
+                 "function": {"name": "kicad_eval", "arguments": "{\"code\":\"fp\"}"}}
+            ]}
+        return {"ok": True, "content": "done"}
+
+    msgs = [{"role": "user", "content": "q"}]
+    r = agent_loop.run_turn(msgs, reg, chat_fn=chat)
+    assert r["ok"] is True and r["content"] == "done"
+    tool_msg = next(m for m in msgs if m["role"] == "tool")
+    assert "<FOOTPRINT R1>" in tool_msg["content"]
+
+
 def test_run_turn_propagates_chat_error():
     reg = tools.ToolRegistry()
 

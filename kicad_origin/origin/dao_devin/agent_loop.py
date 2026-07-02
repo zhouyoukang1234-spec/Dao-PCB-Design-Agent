@@ -97,7 +97,7 @@ def run_turn(
                 "role": "tool",
                 "tool_call_id": tc.get("id", ""),
                 "name": name,
-                "content": json.dumps(result, ensure_ascii=False),
+                "content": json.dumps(result, ensure_ascii=False, default=repr),
             })
             step = {"tool": name, "args": args, "result": result}
             steps.append(step)

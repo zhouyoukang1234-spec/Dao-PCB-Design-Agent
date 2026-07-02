@@ -37,6 +37,22 @@ PANEL_PKG_FILES = (
 )
 
 
+def _jsonable(v: Any) -> Any:
+    """任意回值 → JSON 可序列化 (SWIG 对象降为 repr)。与 _live_server._jsonable 同构。"""
+    if v is None or isinstance(v, (bool, int, float, str)):
+        return v
+    if isinstance(v, (list, tuple)):
+        return [_jsonable(x) for x in v]
+    if isinstance(v, dict):
+        return {str(k): _jsonable(x) for k, x in v.items()}
+    if hasattr(v, "x") and hasattr(v, "y"):           # VECTOR2I / wxPoint
+        try:
+            return {"x": int(v.x), "y": int(v.y)}
+        except Exception:                             # noqa: BLE001
+            pass
+    return repr(v)
+
+
 def _eval_last_expr(code: str, ns: dict) -> Any:
     """执行代码并回传值: 单表达式直 eval; 多语句执前段、回传末尾表达式;
     末尾非表达式则回 ns['result'] (若有)。与 _live_server._eval_last_expr 同构。"""
@@ -121,7 +137,7 @@ if _HAS_GUI:
             def _run() -> None:
                 try:
                     g = {"pcbnew": pcbnew, "board": pcbnew.GetBoard()}
-                    box["result"] = _eval_last_expr(code, g)
+                    box["result"] = _jsonable(_eval_last_expr(code, g))
                 except Exception as e:  # noqa: BLE001
                     box["error"] = str(e)
                 finally:
